@@ -178,18 +178,6 @@ llm-estimate/
 - **Apple**: M1-Ultra, M2-Ultra
 - **Google**: TPU-v4
 
-## Compatibility
-
-For backward compatibility, the old `--gpu` and `--cpu` parameters are still supported, but the new `--accelerator` parameter is recommended.
-
-```bash
-# Old format (still supported)
-llm-estimate estimate --model llama-2-7b --gpu rtx-4090
-
-# New format (recommended)
-llm-estimate estimate --model llama-2-7b --accelerator rtx-4090
-```
-
 ## Development
 
 ### Environment Setup

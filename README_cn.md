@@ -178,18 +178,6 @@ llm-estimate/
 - **Apple**: M1-Ultra, M2-Ultra
 - **Google**: TPU-v4
 
-## 兼容性说明
-
-为保持向后兼容，仍支持旧的`--gpu`和`--cpu`参数，但建议使用新的`--accelerator`参数。
-
-```bash
-# 旧格式（仍然支持）
-llm-estimate estimate --model llama-2-7b --gpu rtx-4090
-
-# 新格式（推荐）
-llm-estimate estimate --model llama-2-7b --accelerator rtx-4090
-```
-
 ## 开发
 
 ### 环境设置

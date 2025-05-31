@@ -31,8 +31,6 @@ def cli():
 @click.option("--model", "-m", required=True, help="模型名称")
 @click.option("--accelerator", "-a", help="加速器型号 (如: rtx-4090, a100-40gb, i9-13900k)")
 @click.option("--accelerators", help="多个加速器，逗号分隔 (如: rtx-4090,a100-40gb)")
-@click.option("--gpu", "-g", help="GPU型号 (兼容旧格式，建议使用 --accelerator)")
-@click.option("--cpu", "-c", help="CPU型号 (兼容旧格式，建议使用 --accelerator)") 
 @click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
 @click.option("--context-length", "-l", type=int, help="上下文长度")
 @click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
@@ -40,8 +38,7 @@ def cli():
 @click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
 @click.option("--verbose", "-v", is_flag=True, help="详细输出")
 def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str],
-            gpu: Optional[str], cpu: Optional[str], batch_size: int, 
-            context_length: Optional[int], precision: str,
+            batch_size: int, context_length: Optional[int], precision: str,
             output: Optional[str], format: str, verbose: bool):
     """估算模型性能"""
     
@@ -52,18 +49,14 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
         # 构建硬件配置
         hardware_config = {}
         
-        # 优先使用新的加速器参数
+        # 使用加速器参数
         if accelerator:
             hardware_config["accelerator"] = accelerator
         elif accelerators:
             acc_list = [acc.strip() for acc in accelerators.split(",")]
             hardware_config["accelerators"] = acc_list
-        # 兼容旧的GPU/CPU参数
         else:
-            if gpu:
-                hardware_config["gpu"] = gpu
-            if cpu:
-                hardware_config["cpu"] = cpu
+            raise click.BadParameter("必须指定 --accelerator 或 --accelerators 参数")
             
         # 构建模型配置
         model_config = {

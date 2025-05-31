@@ -197,7 +197,7 @@ GPU_PERFORMANCE_FACTORS = {
 ### 命令行使用
 ```bash
 # 基本使用
-llm-estimate --model llama-2-7b --gpu rtx-4090 --memory 32GB
+llm-estimate --model llama-2-7b --accelerator rtx-4090 --memory 32GB
 
 # 交互式模式
 llm-estimate interactive
@@ -206,10 +206,10 @@ llm-estimate interactive
 llm-estimate batch --config configs/hardware_list.yaml
 
 # 对比模式
-llm-estimate compare --models llama-2-7b,qwen-7b --gpu rtx-4090
+llm-estimate compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
 
 # 输出详细信息
-llm-estimate --model qwen-14b --gpu v100 --verbose --output report.json
+llm-estimate --model qwen-14b --accelerator v100 --verbose --output report.json
 ```
 
 ### Python API 使用
@@ -219,7 +219,7 @@ from llm_estimate import PerformanceEstimator
 estimator = PerformanceEstimator()
 result = estimator.estimate(
     model='llama-2-7b',
-    hardware={'gpu': 'rtx-4090', 'memory': '32GB'}
+    hardware={'accelerator': 'rtx-4090', 'memory': '32GB'}
 )
 print(f"预估QPS: {result.qps}")
 ```
