@@ -1,108 +1,110 @@
+[English] | [中文](README_cn.md)
+
 # LLM-Estimate
 
-大语言模型性能估算工具 - 估算LLM在不同硬件配置下的性能表现。
+LLM Performance Estimation Tool - Estimate the performance of Large Language Models on different hardware configurations.
 
-## 功能特性
+## Features
 
-- 🚀 支持多种主流LLM模型（Llama、Qwen等）
-- 💻 统一加速器抽象（GPU、CPU、TPU、NPU等）
-- 📊 估算关键性能指标（吞吐量、延迟、内存使用）
-- 🔧 提供优化建议和瓶颈分析
-- 📋 支持多种输出格式（表格、JSON、CSV）
-- 🖥️ 命令行工具和Python API
-- ⚡ 专注算力（FLOPS）和内存带宽核心指标
+- 🚀 Support for mainstream LLM models (Llama, Qwen, etc.)
+- 💻 Unified accelerator abstraction (GPU, CPU, TPU, NPU, etc.)
+- 📊 Estimate key performance metrics (throughput, latency, memory usage)
+- 🔧 Provide optimization suggestions and bottleneck analysis
+- 📋 Support multiple output formats (table, JSON, CSV)
+- 🖥️ Command-line tool and Python API
+- ⚡ Focus on core metrics: computation (FLOPS) and memory bandwidth
 
-## 核心概念
+## Core Concepts
 
-本项目将GPU、CPU、TPU等计算设备统一抽象为**加速器**，不再区分设备类型，只关注：
-- **算力**: 计算能力（TFLOPS）
-- **内存带宽**: 存储带宽（GB/s）
-- **内存容量**: 可用内存（GB）
+This project unifies GPU, CPU, TPU and other computing devices as **accelerators**, no longer distinguishing device types, focusing only on:
+- **Compute**: Computational capability (TFLOPS)
+- **Memory Bandwidth**: Storage bandwidth (GB/s)
+- **Memory Capacity**: Available memory (GB)
 
-这种统一抽象简化了硬件配置，使性能估算更加直观和准确。
+This unified abstraction simplifies hardware configuration, making performance estimation more intuitive and accurate.
 
-## 快速开始
+## Quick Start
 
-### 安装
+### Installation
 
 ```bash
-# 克隆项目
+# Clone the project
 git clone https://github.com/zhangwm/llm-estimate.git
 cd llm-estimate
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
 
-# 可选：安装项目（用于全局命令）
+# Optional: Install the project (for global commands)
 pip install -e .
 ```
 
-### 运行方式
+### Running Methods
 
-#### 方式1: 直接运行（推荐，无需安装）
+#### Method 1: Direct Execution (Recommended, no installation required)
 
 ```bash
-# 使用项目根目录的入口脚本
+# Use the entry script in the project root directory
 python3 llm_estimate.py --help
 
-# 或者给脚本执行权限后直接运行
+# Or give the script execute permission and run directly
 chmod +x llm_estimate.py
 ./llm_estimate.py --help
 ```
 
-#### 方式2: 模块方式运行
+#### Method 2: Module Execution
 
 ```bash
-# 在项目根目录下运行CLI模块
+# Run CLI module in project root directory
 python3 -m llm_estimate.cli --help
 
-# 或者运行模块内的main.py
+# Or run main.py in the module
 python3 llm_estimate/main.py --help
 ```
 
-#### 方式3: 安装后全局命令
+#### Method 3: Global Command After Installation
 
 ```bash
-# 先安装项目
+# First install the project
 pip install -e .
 
-# 然后可以全局使用
+# Then use globally
 llm-estimate --help
 ```
 
-**注意**: 方式1是最简单的方法，只需要克隆项目和安装依赖即可运行，无需安装包。
+**Note**: Method 1 is the simplest approach, requiring only cloning the project and installing dependencies.
 
-### 基本使用
+### Basic Usage
 
-#### 命令行工具
+#### Command Line Tool
 
 ```bash
-# 估算Llama-2-7B在RTX-4090上的性能
+# Estimate Llama-2-7B performance on RTX-4090
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
 
-# 使用多个加速器
+# Use multiple accelerators
 python3 llm_estimate.py estimate --model llama-2-7b --accelerators rtx-4090,a100-40gb
 
-# 指定精度和批次大小
+# Specify precision and batch size
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4
 
-# 列出支持的模型
+# List supported models
 python3 llm_estimate.py list-models
 
-# 列出支持的加速器
+# List supported accelerators
 python3 llm_estimate.py list-accelerators
 
-# 按类型筛选加速器
+# Filter accelerators by type
 python3 llm_estimate.py list-accelerators --type gpu
 python3 llm_estimate.py list-accelerators --type cpu
 
-# 比较多个模型
+# Compare multiple models
 python3 llm_estimate.py compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
 
-# 基准测试多个加速器
+# Benchmark multiple accelerators
 python3 llm_estimate.py benchmark --accelerators rtx-4090,a100-40gb,h100 --model llama-2-7b
 
-# 交互式模式
+# Interactive mode
 python3 llm_estimate.py interactive
 ```
 
@@ -111,119 +113,119 @@ python3 llm_estimate.py interactive
 ```python
 from llm_estimate import PerformanceEstimator, create_accelerator
 
-# 创建估算器
+# Create estimator
 estimator = PerformanceEstimator()
 
-# 单加速器估算
+# Single accelerator estimation
 result = estimator.estimate(
     model_name="llama-2-7b",
     hardware_config={"accelerator": "rtx-4090"},
     model_config={"batch_size": 1, "precision": "fp16"}
 )
 
-# 多加速器估算
+# Multi-accelerator estimation
 result = estimator.estimate(
     model_name="llama-2-7b",
     hardware_config={"accelerators": ["rtx-4090", "a100-40gb"]},
     model_config={"batch_size": 4, "precision": "fp16"}
 )
 
-print(f"吞吐量: {result['throughput_tokens_per_sec']:.1f} tokens/s")
-print(f"内存使用: {result['memory_usage_gb']:.2f} GB")
-print(f"延迟: {result['latency_ms']:.1f} ms")
-print(f"瓶颈: {result['bottleneck']}")
+print(f"Throughput: {result['throughput_tokens_per_sec']:.1f} tokens/s")
+print(f"Memory Usage: {result['memory_usage_gb']:.2f} GB")
+print(f"Latency: {result['latency_ms']:.1f} ms")
+print(f"Bottleneck: {result['bottleneck']}")
 
-# 直接创建加速器
+# Create accelerator directly
 accelerator = create_accelerator("rtx-4090")
-print(f"算力: {accelerator.compute_capability_tflops} TFLOPS")
-print(f"内存带宽: {accelerator.memory_bandwidth_gb_s} GB/s")
+print(f"Compute: {accelerator.compute_capability_tflops} TFLOPS")
+print(f"Memory Bandwidth: {accelerator.memory_bandwidth_gb_s} GB/s")
 ```
 
-## 项目结构
+## Project Structure
 
 ```
 llm-estimate/
-├── llm_estimate/           # 主要代码目录
-│   ├── models/            # 模型管理模块
-│   ├── hardware/          # 硬件管理模块（统一加速器）
-│   ├── estimator/         # 估算引擎模块
-│   ├── config/            # 全局配置模块
-│   ├── utils/             # 工具模块
-│   └── cli/               # 命令行接口
-├── tests/                 # 测试模块
-├── data/                  # 数据目录
-├── docs/                  # 文档目录
-└── scripts/               # 脚本目录
+├── llm_estimate/           # Main code directory
+│   ├── models/            # Model management module
+│   ├── hardware/          # Hardware management module (unified accelerators)
+│   ├── estimator/         # Estimation engine module
+│   ├── config/            # Global configuration module
+│   ├── utils/             # Utilities module
+│   └── cli/               # Command line interface
+├── tests/                 # Test module
+├── data/                  # Data directory
+├── docs/                  # Documentation directory
+└── scripts/               # Scripts directory
 ```
 
-## 支持的模型
+## Supported Models
 
-- **Llama系列**: Llama-2-7B, Llama-2-13B, Llama-2-70B
-- **Qwen系列**: Qwen-7B, Qwen-14B, Qwen-72B
-- 更多模型持续添加中...
+- **Llama Series**: Llama-2-7B, Llama-2-13B, Llama-2-70B
+- **Qwen Series**: Qwen-7B, Qwen-14B, Qwen-72B
+- More models being added continuously...
 
-## 支持的加速器
+## Supported Accelerators
 
-### GPU加速器
+### GPU Accelerators
 - **NVIDIA**: RTX-4090, RTX-4080, RTX-3090, A100, H100, V100
-- **AMD**: (规划中)
+- **AMD**: (Planned)
 
-### CPU加速器
+### CPU Accelerators
 - **Intel**: i9-13900K, i7-13700K
 - **AMD**: Ryzen-9-7950X
 
-### 专用加速器
+### Specialized Accelerators
 - **Apple**: M1-Ultra, M2-Ultra
 - **Google**: TPU-v4
 
-## 兼容性说明
+## Compatibility
 
-为保持向后兼容，仍支持旧的`--gpu`和`--cpu`参数，但建议使用新的`--accelerator`参数。
+For backward compatibility, the old `--gpu` and `--cpu` parameters are still supported, but the new `--accelerator` parameter is recommended.
 
 ```bash
-# 旧格式（仍然支持）
+# Old format (still supported)
 llm-estimate estimate --model llama-2-7b --gpu rtx-4090
 
-# 新格式（推荐）
+# New format (recommended)
 llm-estimate estimate --model llama-2-7b --accelerator rtx-4090
 ```
 
-## 开发
+## Development
 
-### 环境设置
+### Environment Setup
 
 ```bash
-# 安装开发依赖
+# Install development dependencies
 pip install -e ".[dev]"
 
-# 运行测试
+# Run tests
 pytest
 
-# 代码格式化
+# Code formatting
 black llm_estimate/
 
-# 类型检查
+# Type checking
 mypy llm_estimate/
 ```
 
-### 添加新模型
+### Adding New Models
 
-1. 在 `llm_estimate/models/` 中创建新的模型类
-2. 继承 `BaseModel` 并实现必要方法
-3. 在 `registry.py` 中注册新模型
+1. Create a new model class in `llm_estimate/models/`
+2. Inherit from `BaseModel` and implement necessary methods
+3. Register the new model in `registry.py`
 
-### 添加新加速器
+### Adding New Accelerators
 
-1. 在 `llm_estimate/hardware/accelerator.py` 的 `ACCELERATOR_SPECS` 中添加规格
-2. 提供算力（TFLOPS）、内存带宽（GB/s）、内存容量（GB）等关键参数
-3. 可选择性添加功耗、价格等辅助信息
+1. Add specifications to `ACCELERATOR_SPECS` in `llm_estimate/hardware/accelerator.py`
+2. Provide key parameters: compute (TFLOPS), memory bandwidth (GB/s), memory capacity (GB)
+3. Optionally add auxiliary information like power consumption, price
 
-示例：
+Example:
 ```python
 "new-accelerator": AcceleratorSpecs(
     name="New-Accelerator",
     manufacturer="Vendor",
-    device_type="gpu",  # 或 "cpu", "tpu", "soc"
+    device_type="gpu",  # or "cpu", "tpu", "soc"
     compute_capability_tflops=100.0,
     memory_bandwidth_gb_s=1500.0,
     memory_capacity_gb=48.0,
@@ -233,10 +235,10 @@ mypy llm_estimate/
 )
 ```
 
-## 许可证
+## License
 
 MIT License
 
-## 贡献
+## Contributing
 
-欢迎提交Issue和Pull Request！
+Issues and Pull Requests are welcome!
