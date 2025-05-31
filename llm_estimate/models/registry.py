@@ -43,57 +43,17 @@ class ModelRegistry:
                 max_position_embeddings=4096,
                 model_type="llama"
             ),
-            "llama-2-13b": ModelSpecs(
-                name="llama-2-13b", 
-                parameters=13,
-                layers=40,
-                hidden_size=5120,
-                attention_heads=40,
-                vocab_size=32000,
-                max_position_embeddings=4096,
-                model_type="llama"
-            ),
-            "llama-2-70b": ModelSpecs(
-                name="llama-2-70b",
-                parameters=70,
-                layers=80,
-                hidden_size=8192,
-                attention_heads=64,
-                vocab_size=32000,
-                max_position_embeddings=4096,
-                model_type="llama"
-            ),
             # Qwen 系列
-            "qwen-7b": ModelSpecs(
-                name="qwen-7b",
-                parameters=7,
-                layers=32,
+            "qwen3-8b": ModelSpecs(
+                name="qwen3-8b",
+                parameters=8,
+                layers=36,
                 hidden_size=4096,
                 attention_heads=32,
                 vocab_size=151936,
-                max_position_embeddings=8192,
-                model_type="qwen"
+                max_position_embeddings=40960,
+                model_type="qwen3"
             ),
-            "qwen-14b": ModelSpecs(
-                name="qwen-14b",
-                parameters=14,
-                layers=40,
-                hidden_size=5120,
-                attention_heads=40,
-                vocab_size=151936,
-                max_position_embeddings=8192,
-                model_type="qwen"
-            ),
-            "qwen-72b": ModelSpecs(
-                name="qwen-72b",
-                parameters=72,
-                layers=80,
-                hidden_size=8192,
-                attention_heads=64,
-                vocab_size=151936,
-                max_position_embeddings=32768,
-                model_type="qwen"
-            )
         })
     
     def register(self, model_type: str, model_class: Type[BaseModel]) -> None:
