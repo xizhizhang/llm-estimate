@@ -38,6 +38,7 @@ class ModelRegistry:
                 parameters=7,
                 layers=32,
                 hidden_size=4096,
+                intermediate_size=11008,  # Llama2-7B 的实际 FFN 中间维度
                 attention_heads=32,
                 head_dim=128,
                 num_key_value_heads=32,  # MHA: kv_heads = attention_heads
@@ -52,6 +53,7 @@ class ModelRegistry:
                 parameters=8,
                 layers=32,
                 hidden_size=4096,
+                intermediate_size=14336,  # Llama3.1-8B 的实际 FFN 中间维度
                 attention_heads=32,
                 head_dim=128,
                 num_key_value_heads=8,  # GQA: 8 key-value heads for 32 query heads
@@ -68,6 +70,7 @@ class ModelRegistry:
                 parameters=8,
                 layers=36,
                 hidden_size=4096,
+                intermediate_size=12288,  # Qwen3-8B 的 FFN 中间维度
                 attention_heads=32,
                 head_dim=128,
                 num_key_value_heads=8,  # GQA

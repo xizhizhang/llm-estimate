@@ -104,7 +104,7 @@ class QwenModel(BaseModel):
         
         # 2. FFN (Qwen使用SwiGLU激活)
         # SwiGLU需要两个线性变换
-        ffn_hidden = int(hidden_size * 8 / 3)  # Qwen的FFN维度
+        ffn_hidden = self.specs.intermediate_size  # 使用实际的 FFN 维度
         ffn_flops = (
             # 第一个门控线性层
             hidden_size * ffn_hidden +

@@ -73,9 +73,9 @@ class LlamaModel(BaseModel):
             self.specs.layers * bytes_per_param
         )
         
-        # 3. FFN 中间激活 (4x hidden_size)
+        # 3. FFN 中间激活 (使用实际的 intermediate_size)
         ffn_activations_memory = (
-            batch_size * sequence_length * hidden_size * 4 * 
+            batch_size * sequence_length * self.specs.intermediate_size * 
             self.specs.layers * bytes_per_param
         )
         
@@ -161,17 +161,17 @@ class LlamaModel(BaseModel):
         
         # 2. Feed-Forward Network (FFN) FLOPS
         # 标准Llama使用SwiGLU激活，包含gate、up、down三个投影
-        # Gate投影: hidden_size * (4 * hidden_size)
-        gate_projection_flops = hidden_size * (4 * hidden_size)
+        # Gate投影: hidden_size * intermediate_size
+        gate_projection_flops = hidden_size * self.specs.intermediate_size
         
-        # Up投影: hidden_size * (4 * hidden_size) 
-        up_projection_flops = hidden_size * (4 * hidden_size)
+        # Up投影: hidden_size * intermediate_size 
+        up_projection_flops = hidden_size * self.specs.intermediate_size
         
         # SwiGLU激活: gate(x) * swish(up(x))，近似为线性复杂度
-        activation_flops = 4 * hidden_size  # 近似值
+        activation_flops = self.specs.intermediate_size  # 近似值
         
-        # Down投影: (4 * hidden_size) * hidden_size
-        down_projection_flops = (4 * hidden_size) * hidden_size
+        # Down投影: intermediate_size * hidden_size
+        down_projection_flops = self.specs.intermediate_size * hidden_size
         
         # 总FFN FLOPS
         ffn_flops = (
@@ -222,8 +222,8 @@ class LlamaModel(BaseModel):
         # Attention参数: Q,K,V,O投影
         attention_params = layers * (4 * hidden_size * hidden_size)
         
-        # FFN参数: gate, up, down投影 (4x expansion)
-        ffn_params = layers * (3 * hidden_size * 4 * hidden_size)
+        # FFN参数: gate, up, down投影 (使用实际的 intermediate_size)
+        ffn_params = layers * (3 * hidden_size * self.specs.intermediate_size)
         
         # Layer norm参数 (较少，可忽略)
         layer_norm_params = layers * 2 * hidden_size
@@ -262,8 +262,8 @@ class LlamaModel(BaseModel):
         ) * 2  # multiply-accumulate
         
         ffn_flops_per_layer = (
-            3 * hidden_size * 4 * hidden_size +  # gate, up, down projections
-            4 * hidden_size  # activation
+            3 * hidden_size * self.specs.intermediate_size +  # gate, up, down projections
+            self.specs.intermediate_size  # activation
         ) * 2  # multiply-accumulate
         
         total_attention_flops = layers * attention_flops_per_layer

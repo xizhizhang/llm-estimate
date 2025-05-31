@@ -17,6 +17,7 @@ class ModelSpecs:
     parameters: int  # 参数量（单位：B）
     layers: int  # 层数
     hidden_size: int  # 隐藏维度
+    intermediate_size: int  # FFN 中间层维度
     attention_heads: int  # 注意力头数
     head_dim: int  # 注意力头维度
     num_key_value_heads: int  # 键值对注意力头数
