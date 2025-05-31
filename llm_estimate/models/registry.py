@@ -31,7 +31,7 @@ class ModelRegistry:
     
     def _load_model_specs(self) -> None:
         """加载模型规格数据"""
-        # Llama 2 系列
+        # Llama 2 系列 - 使用Multi-Head Attention (MHA)
         self._model_specs.update({
             "llama-2-7b": ModelSpecs(
                 name="llama-2-7b",
@@ -39,17 +39,38 @@ class ModelRegistry:
                 layers=32,
                 hidden_size=4096,
                 attention_heads=32,
+                head_dim=128,
+                num_key_value_heads=32,  # MHA: kv_heads = attention_heads
                 vocab_size=32000,
                 max_position_embeddings=4096,
                 model_type="llama"
             ),
-            # Qwen 系列
+            
+            # Llama 3.1 系列 - 使用Grouped Query Attention (GQA)
+            "llama-3.1-8b": ModelSpecs(
+                name="llama-3.1-8b",
+                parameters=8,
+                layers=32,
+                hidden_size=4096,
+                attention_heads=32,
+                head_dim=128,
+                num_key_value_heads=8,  # GQA: 8 key-value heads for 32 query heads
+                vocab_size=128256,
+                max_position_embeddings=131072,  # 128K context
+                model_type="llama"
+            ),
+        })
+        
+        # Qwen3 系列
+        self._model_specs.update({
             "qwen3-8b": ModelSpecs(
                 name="qwen3-8b",
                 parameters=8,
                 layers=36,
                 hidden_size=4096,
                 attention_heads=32,
+                head_dim=128,
+                num_key_value_heads=8,  # GQA
                 vocab_size=151936,
                 max_position_embeddings=40960,
                 model_type="qwen3"

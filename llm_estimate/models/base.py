@@ -18,6 +18,8 @@ class ModelSpecs:
     layers: int  # 层数
     hidden_size: int  # 隐藏维度
     attention_heads: int  # 注意力头数
+    head_dim: int  # 注意力头维度
+    num_key_value_heads: int  # 键值对注意力头数
     vocab_size: int  # 词汇表大小
     max_position_embeddings: int  # 最大位置编码
     model_type: str  # 模型类型

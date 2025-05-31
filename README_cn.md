@@ -160,7 +160,7 @@ llm-estimate/
 
 ## 支持的模型
 
-- **Llama系列**: Llama-2-7B, Llama-2-13B, Llama-2-70B
+- **Llama系列**: Llama-2-7B, Llama-3
 - **Qwen系列**: Qwen-7B, Qwen-14B, Qwen-72B
 - 更多模型持续添加中...
 

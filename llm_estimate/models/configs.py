@@ -37,15 +37,6 @@ MODEL_SPECIFIC_CONFIGS = {
         "context_length": 4096,
         "max_new_tokens": 512
     },
-    "llama-2-13b": {
-        "context_length": 4096,
-        "max_new_tokens": 512
-    },
-    "llama-2-70b": {
-        "context_length": 4096,
-        "max_new_tokens": 512,
-        "batch_size": 1  # 大模型建议小batch
-    },
     
     # Qwen系列
     "qwen-7b": {

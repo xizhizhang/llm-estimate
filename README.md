@@ -160,7 +160,7 @@ llm-estimate/
 
 ## Supported Models
 
-- **Llama Series**: Llama-2-7B, Llama-2-13B, Llama-2-70B
+- **Llama Series**: Llama-2-7B, Llama-3
 - **Qwen Series**: Qwen-7B, Qwen-14B, Qwen-72B
 - More models being added continuously...
 
