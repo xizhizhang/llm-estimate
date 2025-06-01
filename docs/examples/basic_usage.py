@@ -50,7 +50,9 @@ def main():
         print(f"内存使用: {result['memory_usage_gb']:.2f} GB")
         print(f"吞吐量: {result['throughput_tokens_per_sec']:.1f} tokens/s")
         print(f"延迟: {result['latency_ms']:.1f} ms")
-        print(f"硬件利用率: {result['utilization_percent']:.1f}%")
+        print(f"算力利用率: {result['compute_utilization_percent']:.1f}%")
+        print(f"存储带宽利用率: {result['memory_bandwidth_utilization_percent']:.1f}%")
+        print(f"存储容量利用率: {result['memory_capacity_utilization_percent']:.1f}%")
         print(f"性能瓶颈: {result['bottleneck']}")
         
         if result.get('recommendations'):

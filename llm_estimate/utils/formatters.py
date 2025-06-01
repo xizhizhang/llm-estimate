@@ -51,9 +51,25 @@ def format_results_table(result: Dict[str, Any], verbose: bool = False) -> str:
     
     # 硬件配置
     lines.append("硬件配置:")
-    hw_config = result.get('hardware_config', {})
-    for key, value in hw_config.items():
-        lines.append(f"  {key}: {value}")
+    # 显示系统信息中的加速器详情
+    system_info = result.get('system_info', {})
+    if system_info:
+        lines.append(f"  加速器数量: {system_info.get('accelerator_count', 0)}")
+        lines.append(f"  总算力: {system_info.get('total_compute_capability_tflops', 0):.1f} TFLOPS")
+        lines.append(f"  总内存容量: {system_info.get('total_memory_capacity_gb', 0):.1f} GB") 
+        lines.append(f"  总内存带宽: {system_info.get('total_memory_bandwidth_gb_s', 0):.1f} GB/s")
+        
+        # 显示每个加速器的详细信息
+        accelerators = system_info.get('accelerators', [])
+        if accelerators:
+            lines.append("  加速器详情:")
+            for i, acc in enumerate(accelerators, 1):
+                lines.append(f"    {i}. {acc.get('name', 'N/A')} ({acc.get('manufacturer', 'N/A')})")
+                lines.append(f"       算力: {acc.get('compute_capability_tflops', 0):.1f} TFLOPS")
+                lines.append(f"       内存: {acc.get('memory_capacity_gb', 0):.1f} GB")
+                lines.append(f"       带宽: {acc.get('memory_bandwidth_gb_s', 0):.1f} GB/s")
+    else:
+        lines.append("  无硬件信息")
     
     lines.append("")
     
@@ -62,7 +78,9 @@ def format_results_table(result: Dict[str, Any], verbose: bool = False) -> str:
         ["内存使用", f"{result.get('memory_usage_gb', 0):.2f} GB"],
         ["吞吐量", f"{result.get('throughput_tokens_per_sec', 0):.1f} tokens/s"],
         ["延迟", f"{result.get('latency_ms', 0):.1f} ms"],
-        ["硬件利用率", f"{result.get('utilization_percent', 0):.1f}%"],
+        ["算力利用率", f"{result.get('compute_utilization_percent', 0):.1f}%"],
+        ["存储带宽利用率", f"{result.get('memory_bandwidth_utilization_percent', 0):.1f}%"],
+        ["存储容量利用率", f"{result.get('memory_capacity_utilization_percent', 0):.1f}%"],
         ["性能瓶颈", result.get('bottleneck', 'N/A')]
     ]
     
@@ -86,7 +104,8 @@ def format_results_csv(result: Dict[str, Any]) -> str:
     # CSV头部
     headers = [
         "model_name", "memory_usage_gb", "throughput_tokens_per_sec",
-        "latency_ms", "utilization_percent", "bottleneck"
+        "latency_ms", "compute_utilization_percent", "memory_bandwidth_utilization_percent", 
+        "memory_capacity_utilization_percent", "bottleneck"
     ]
     csv_lines.append(",".join(headers))
     
@@ -96,7 +115,9 @@ def format_results_csv(result: Dict[str, Any]) -> str:
         str(result.get('memory_usage_gb', 0)),
         str(result.get('throughput_tokens_per_sec', 0)),
         str(result.get('latency_ms', 0)),
-        str(result.get('utilization_percent', 0)),
+        str(result.get('compute_utilization_percent', 0)),
+        str(result.get('memory_bandwidth_utilization_percent', 0)),
+        str(result.get('memory_capacity_utilization_percent', 0)),
         result.get('bottleneck', '')
     ]
     csv_lines.append(",".join(values))
@@ -169,10 +190,12 @@ def format_performance_summary(results: list) -> str:
             f"{result.get('memory_usage_gb', 0):.1f}",
             f"{result.get('throughput_tokens_per_sec', 0):.1f}",
             f"{result.get('latency_ms', 0):.1f}",
-            f"{result.get('utilization_percent', 0):.1f}%"
+            f"{result.get('compute_utilization_percent', 0):.1f}%",
+            f"{result.get('memory_bandwidth_utilization_percent', 0):.1f}%",
+            f"{result.get('memory_capacity_utilization_percent', 0):.1f}%"
         ]
         table_data.append(row)
     
-    headers = ["模型", "内存(GB)", "吞吐量(token/s)", "延迟(ms)", "利用率"]
+    headers = ["模型", "内存(GB)", "吞吐量(token/s)", "延迟(ms)", "算力利用率", "存储带宽利用率", "存储容量利用率"]
     
     return tabulate(table_data, headers=headers, tablefmt="grid") 

@@ -23,7 +23,11 @@ class EstimationResult:
     latency_ms: float
     memory_usage_gb: float
     utilization_percent: float
+    compute_utilization_percent: float
+    memory_bandwidth_utilization_percent: float
+    memory_capacity_utilization_percent: float
     bottleneck: str
+    bottleneck_details: str
     additional_metrics: Dict[str, Any]
 
 
@@ -58,8 +62,8 @@ class PerformanceEstimator:
         memory_usage = self._estimate_memory_usage(model, system_spec)
         throughput = self._estimate_throughput(model, system_spec)
         latency = self._estimate_latency(model, system_spec)
-        utilization = self._estimate_utilization(model, system_spec)
-        bottleneck = self._identify_bottleneck(model, system_spec)
+        detailed_utilization = self._estimate_detailed_utilization(model, system_spec)
+        utilization_analysis = self._analyze_utilization_and_bottleneck(model, system_spec)
         
         # 组装结果
         result = {
@@ -69,9 +73,13 @@ class PerformanceEstimator:
             "memory_usage_gb": memory_usage,
             "throughput_tokens_per_sec": throughput,
             "latency_ms": latency,
-            "utilization_percent": utilization,
-            "bottleneck": bottleneck,
-            "recommendations": self._generate_recommendations(model, system_spec),
+            "utilization_percent": detailed_utilization["overall"],
+            "compute_utilization_percent": detailed_utilization["compute"],
+            "memory_bandwidth_utilization_percent": detailed_utilization["memory_bandwidth"], 
+            "memory_capacity_utilization_percent": detailed_utilization["memory_capacity"],
+            "bottleneck": utilization_analysis["bottleneck"],
+            "bottleneck_details": utilization_analysis["bottleneck_details"],
+            "recommendations": self._generate_recommendations(model, system_spec, detailed_utilization, utilization_analysis),
             "compatibility": system_spec.check_compatibility(memory_usage)
         }
         
@@ -175,55 +183,117 @@ class PerformanceEstimator:
         
         return primary_accelerator.estimate_latency(workload)
     
-    def _estimate_utilization(self, model: BaseModel, system_spec: SystemSpec) -> float:
-        """估算硬件利用率"""
+    def _estimate_detailed_utilization(self, model: BaseModel, system_spec: SystemSpec) -> Dict[str, float]:
+        """估算详细的硬件利用率"""
         if not system_spec.accelerators:
-            return 0.0
+            return {
+                "overall": 0.0,
+                "compute": 0.0,
+                "memory_bandwidth": 0.0,
+                "memory_capacity": 0.0
+            }
         
         memory_usage = self._estimate_memory_usage(model, system_spec)
         total_memory = system_spec.get_total_memory_capacity()
         
-        # 内存利用率
-        memory_utilization = min(memory_usage / total_memory * 100, 100) if total_memory > 0 else 0
-        
-        # 计算利用率（这里简化为内存利用率，实际应该考虑算力利用率）
-        return memory_utilization
-    
-    def _identify_bottleneck(self, model: BaseModel, system_spec: SystemSpec) -> str:
-        """识别性能瓶颈"""
-        if not system_spec.accelerators:
-            return "no_accelerator"
-        
-        memory_usage = self._estimate_memory_usage(model, system_spec)
-        total_memory = system_spec.get_total_memory_capacity()
-        
-        # 检查内存瓶颈
-        if memory_usage > total_memory * 0.9:
-            return "memory_capacity"
-        
-        # 检查内存带宽 vs 算力瓶颈
+        # 计算各种利用率指标
         flops_per_token = model.estimate_flops_per_token()
         memory_per_token = model.estimate_memory_per_token()
+        total_compute = system_spec.get_total_compute_capability() * 1e12  # TFLOPS转换为FLOPS
+        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9   # GB/s转换为B/s
         
-        total_compute = system_spec.get_total_compute_capability() * 1e12
-        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9
+        # 1. 存储容量利用率：已使用内存 / 总内存容量
+        memory_capacity_utilization = min(memory_usage / total_memory * 100, 100) if total_memory > 0 else 0
         
-        compute_limited_tps = total_compute / flops_per_token
-        memory_limited_tps = total_bandwidth / memory_per_token
+        # 2. 计算实际吞吐量限制
+        compute_limited_tps = total_compute / flops_per_token if flops_per_token > 0 else float('inf')
+        memory_limited_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
+        actual_tps = min(compute_limited_tps, memory_limited_tps)
         
-        if compute_limited_tps < memory_limited_tps:
-            return "compute"
+        # 3. 算力利用率：实际使用的算力 / 总算力
+        compute_utilization = min((actual_tps * flops_per_token) / total_compute * 100, 100) if total_compute > 0 else 0
+        
+        # 4. 存储带宽利用率：基于实际测得的吞吐量计算
+        actual_throughput = self._estimate_throughput(model, system_spec)
+        theoretical_bandwidth_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
+        memory_bandwidth_utilization = min((actual_throughput * memory_per_token) / total_bandwidth * 100, 100) if total_bandwidth > 0 else 0
+        
+        # 5. 整体利用率：取各项利用率的加权平均
+        # 这里使用存储容量利用率作为主要指标，因为它最直观
+        overall_utilization = memory_capacity_utilization
+        
+        return {
+            "overall": overall_utilization,
+            "compute": compute_utilization,
+            "memory_bandwidth": memory_bandwidth_utilization,
+            "memory_capacity": memory_capacity_utilization
+        }
+    
+    def _analyze_utilization_and_bottleneck(self, model: BaseModel, system_spec: SystemSpec) -> Dict[str, Any]:
+        """分析硬件利用率和识别性能瓶颈"""
+        if not system_spec.accelerators:
+            return {
+                "compute_utilization": 0.0,
+                "memory_utilization": 0.0,
+                "bottleneck": "no_accelerator",
+                "bottleneck_details": "系统中没有可用的加速器"
+            }
+        
+        memory_usage = self._estimate_memory_usage(model, system_spec)
+        total_memory = system_spec.get_total_memory_capacity()
+        
+        # 内存利用率 (存储利用率)
+        memory_utilization = min(memory_usage / total_memory * 100, 100) if total_memory > 0 else 0
+        
+        # 计算算力利用率
+        flops_per_token = model.estimate_flops_per_token()
+        memory_per_token = model.estimate_memory_per_token()
+        total_compute = system_spec.get_total_compute_capability() * 1e12  # TFLOPS转换为FLOPS
+        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9   # GB/s转换为B/s
+        
+        # 计算理论最大吞吐量
+        compute_limited_tps = total_compute / flops_per_token if flops_per_token > 0 else float('inf')
+        memory_limited_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
+        
+        # 实际吞吐量受限于较小的那个
+        actual_tps = min(compute_limited_tps, memory_limited_tps)
+        
+        # 算力利用率：实际使用的算力 / 总算力
+        compute_utilization = min((actual_tps * flops_per_token) / total_compute * 100, 100) if total_compute > 0 else 0
+        
+        # 确定瓶颈类型和详细信息
+        if memory_usage > total_memory * 0.9:
+            bottleneck = "memory_capacity"
+            bottleneck_details = f"内存容量不足: 需要 {memory_usage:.2f} GB，可用 {total_memory:.2f} GB (利用率 {memory_utilization:.1f}%)"
+        elif compute_limited_tps < memory_limited_tps:
+            bottleneck = "compute"
+            bottleneck_details = f"算力受限: 算力限制吞吐量 {compute_limited_tps:.0f} tokens/s，内存带宽限制 {memory_limited_tps:.0f} tokens/s"
         else:
-            return "memory_bandwidth"
+            bottleneck = "memory_bandwidth"
+            bottleneck_details = f"内存带宽受限: 内存带宽限制吞吐量 {memory_limited_tps:.0f} tokens/s，算力限制 {compute_limited_tps:.0f} tokens/s"
+        
+        return {
+            "compute_utilization": compute_utilization,
+            "memory_utilization": memory_utilization,
+            "bottleneck": bottleneck,
+            "bottleneck_details": bottleneck_details
+        }
     
     def _generate_recommendations(self, model: BaseModel, 
-                                system_spec: SystemSpec) -> list:
+                                system_spec: SystemSpec,
+                                detailed_utilization: Dict[str, float],
+                                utilization_analysis: Dict[str, Any]) -> list:
         """生成优化建议"""
         recommendations = []
         
         memory_usage = self._estimate_memory_usage(model, system_spec)
         total_memory = system_spec.get_total_memory_capacity()
-        bottleneck = self._identify_bottleneck(model, system_spec)
+        bottleneck = utilization_analysis["bottleneck"]
+        
+        # 提取详细利用率指标
+        compute_utilization = detailed_utilization["compute"]
+        memory_bandwidth_utilization = detailed_utilization["memory_bandwidth"]
+        memory_capacity_utilization = detailed_utilization["memory_capacity"]
         
         # 基于瓶颈类型生成建议
         if bottleneck == "memory_capacity":
@@ -234,18 +304,57 @@ class PerformanceEstimator:
         elif bottleneck == "memory_bandwidth":
             recommendations.append("内存带宽成为瓶颈，建议使用更高带宽的加速器")
             recommendations.append("考虑增加batch_size以提高内存带宽利用率")
+            if memory_bandwidth_utilization < 80:
+                recommendations.append(f"当前存储带宽利用率仅 {memory_bandwidth_utilization:.1f}%，可以考虑增加batch_size")
         
         elif bottleneck == "compute":
             recommendations.append("算力不足，建议使用更强的加速器")
             recommendations.append("考虑使用多卡并行提升算力")
+            if compute_utilization < 80:
+                recommendations.append(f"当前算力利用率仅 {compute_utilization:.1f}%，可以优化计算效率")
         
-        # 基于利用率生成建议
-        utilization = self._estimate_utilization(model, system_spec)
-        if utilization < 50:
-            recommendations.append("硬件利用率较低，可以考虑增加batch_size或使用更小的模型")
+        # 基于算力利用率生成建议
+        if compute_utilization < 30:
+            recommendations.append(f"算力利用率较低 ({compute_utilization:.1f}%)，考虑：")
+            recommendations.append("  - 增加batch_size提高并行度")
+            recommendations.append("  - 使用更复杂的模型充分利用算力")
+            recommendations.append("  - 检查是否存在计算瓶颈")
+        elif compute_utilization > 90:
+            recommendations.append(f"算力利用率很高 ({compute_utilization:.1f}%)，性能接近理论上限")
+        
+        # 基于存储带宽利用率生成建议
+        if memory_bandwidth_utilization < 30:
+            recommendations.append(f"存储带宽利用率较低 ({memory_bandwidth_utilization:.1f}%)，考虑：")
+            recommendations.append("  - 增加batch_size提高数据传输效率")
+            recommendations.append("  - 优化数据加载和预处理流程")
+        elif memory_bandwidth_utilization > 90:
+            recommendations.append(f"存储带宽利用率很高 ({memory_bandwidth_utilization:.1f}%)，接近带宽上限")
+        
+        # 基于存储容量利用率生成建议
+        if memory_capacity_utilization < 30:
+            recommendations.append(f"存储容量利用率较低 ({memory_capacity_utilization:.1f}%)，考虑：")
+            recommendations.append("  - 增加batch_size或使用更大的模型")
+            recommendations.append("  - 当前配置可能过于保守")
+        elif memory_capacity_utilization > 85:
+            recommendations.append(f"存储容量利用率较高 ({memory_capacity_utilization:.1f}%)，注意：")
+            recommendations.append("  - 留意内存不足的风险")
+            recommendations.append("  - 考虑使用内存优化技术")
         
         # 基于模型配置生成建议
         if hasattr(model.config, 'batch_size') and model.config.batch_size == 1:
             recommendations.append("当前batch_size=1，可以考虑增加以提高吞吐量")
+        
+        # 平衡性建议
+        utilization_values = [compute_utilization, memory_bandwidth_utilization, memory_capacity_utilization]
+        max_util = max(utilization_values)
+        min_util = min(utilization_values)
+        
+        if max_util - min_util > 40:
+            if compute_utilization == max_util:
+                recommendations.append("算力利用率远高于存储利用率，系统配置不平衡，考虑增加内存容量或带宽")
+            elif memory_bandwidth_utilization == max_util:
+                recommendations.append("存储带宽利用率过高，考虑增加内存带宽或优化数据访问模式")
+            elif memory_capacity_utilization == max_util:
+                recommendations.append("存储容量利用率过高，考虑增加内存容量或使用内存优化技术")
         
         return recommendations 
