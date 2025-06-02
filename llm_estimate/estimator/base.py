@@ -142,46 +142,88 @@ class PerformanceEstimator:
         memory_info = model.calculate_memory_usage(precision)
         return memory_info["total_inference_gb"]
     
-    def _estimate_throughput(self, model: BaseModel, system_spec: SystemSpec) -> float:
-        """估算吞吐量 (tokens/second)"""
+    def _calculate_performance_limits(self, model: BaseModel, system_spec: SystemSpec) -> Dict[str, float]:
+        """计算性能限制的统一方法，考虑算力和带宽限制"""
         if not system_spec.accelerators:
-            return 0.0
+            return {
+                "compute_limited_tps": 0.0,
+                "memory_limited_tps": 0.0,
+                "actual_tps": 0.0,
+                "total_compute_tflops": 0.0,
+                "total_bandwidth_gbps": 0.0
+            }
         
         # 计算模型的工作负载特征
         flops_per_token = model.estimate_flops_per_token()
         memory_per_token = model.estimate_memory_per_token()
         
-        workload = {
-            "flops_per_token": flops_per_token,
-            "memory_per_token": memory_per_token
+        # 计算系统总的算力和带宽
+        total_compute = system_spec.get_total_compute_capability() * 1e12  # TFLOPS转换为FLOPS
+        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9   # GB/s转换为B/s
+        
+        # 计算理论最大吞吐量限制
+        compute_limited_tps = total_compute / flops_per_token if flops_per_token > 0 else float('inf')
+        memory_limited_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
+        
+        # 实际吞吐量受限于较小的那个
+        actual_tps = min(compute_limited_tps, memory_limited_tps)
+        
+        return {
+            "compute_limited_tps": compute_limited_tps,
+            "memory_limited_tps": memory_limited_tps,
+            "actual_tps": actual_tps,
+            "total_compute_tflops": system_spec.get_total_compute_capability(),
+            "total_bandwidth_gbps": system_spec.get_total_memory_bandwidth()
         }
+    
+    def _estimate_throughput(self, model: BaseModel, system_spec: SystemSpec) -> float:
+        """估算吞吐量 (tokens/second)"""
+        if not system_spec.accelerators:
+            return 0.0
         
-        # 计算每个加速器的吞吐量并汇总
-        total_throughput = 0.0
-        for accelerator in system_spec.accelerators:
-            acc_throughput = accelerator.calculate_throughput(workload)
-            total_throughput += acc_throughput
+        # 使用统一的性能限制计算
+        performance_limits = self._calculate_performance_limits(model, system_spec)
         
-        return total_throughput
+        # 多加速器情况下，返回基于系统总体能力的吞吐量
+        return performance_limits["actual_tps"]
     
     def _estimate_latency(self, model: BaseModel, system_spec: SystemSpec) -> float:
         """估算延迟 (milliseconds)"""
         if not system_spec.accelerators:
             return 1000.0  # 默认1秒延迟
         
-        # 使用性能最强的加速器计算延迟
+        # 使用统一的性能限制计算
+        performance_limits = self._calculate_performance_limits(model, system_spec)
+        
+        # 延迟计算：基于单个token的处理时间
+        # 对于多加速器系统，延迟主要由最强的加速器决定（推理时的流水线特性）
         primary_accelerator = max(
             system_spec.accelerators,
             key=lambda acc: acc.compute_capability_tflops
         )
         
+        # 计算单个加速器的性能限制
         flops_per_token = model.estimate_flops_per_token()
-        workload = {
-            "flops_per_token": flops_per_token,
-            "memory_overhead_ms": 5.0  # 基础内存访问开销
-        }
+        memory_per_token = model.estimate_memory_per_token()
         
-        return primary_accelerator.estimate_latency(workload)
+        primary_compute = primary_accelerator.compute_capability_tflops * 1e12  # TFLOPS转换为FLOPS
+        primary_bandwidth = primary_accelerator.memory_bandwidth_gb_s * 1e9    # GB/s转换为B/s
+        
+        # 计算主加速器的限制
+        primary_compute_limited_tps = primary_compute / flops_per_token if flops_per_token > 0 else float('inf')
+        primary_memory_limited_tps = primary_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
+        primary_actual_tps = min(primary_compute_limited_tps, primary_memory_limited_tps)
+        
+        # 延迟 = 1000ms / tps （转换为毫秒）
+        if primary_actual_tps > 0:
+            base_latency = 1000.0 / primary_actual_tps
+        else:
+            base_latency = 1000.0
+        
+        # 添加基础开销（内存访问、上下文切换等）
+        overhead_ms = 5.0
+        
+        return base_latency + overhead_ms
     
     def _estimate_detailed_utilization(self, model: BaseModel, system_spec: SystemSpec) -> Dict[str, float]:
         """估算详细的硬件利用率"""
@@ -196,29 +238,25 @@ class PerformanceEstimator:
         memory_usage = self._estimate_memory_usage(model, system_spec)
         total_memory = system_spec.get_total_memory_capacity()
         
-        # 计算各种利用率指标
-        flops_per_token = model.estimate_flops_per_token()
-        memory_per_token = model.estimate_memory_per_token()
-        total_compute = system_spec.get_total_compute_capability() * 1e12  # TFLOPS转换为FLOPS
-        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9   # GB/s转换为B/s
+        # 使用统一的性能限制计算
+        performance_limits = self._calculate_performance_limits(model, system_spec)
         
         # 1. 存储容量利用率：已使用内存 / 总内存容量
         memory_capacity_utilization = min(memory_usage / total_memory * 100, 100) if total_memory > 0 else 0
         
-        # 2. 计算实际吞吐量限制
-        compute_limited_tps = total_compute / flops_per_token if flops_per_token > 0 else float('inf')
-        memory_limited_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
-        actual_tps = min(compute_limited_tps, memory_limited_tps)
-        
-        # 3. 算力利用率：实际使用的算力 / 总算力
+        # 2. 算力利用率：实际使用的算力 / 总算力
+        flops_per_token = model.estimate_flops_per_token()
+        total_compute = performance_limits["total_compute_tflops"] * 1e12  # TFLOPS转换为FLOPS
+        actual_tps = performance_limits["actual_tps"]
         compute_utilization = min((actual_tps * flops_per_token) / total_compute * 100, 100) if total_compute > 0 else 0
         
-        # 4. 存储带宽利用率：基于实际测得的吞吐量计算
+        # 3. 存储带宽利用率：基于实际测得的吞吐量计算
+        memory_per_token = model.estimate_memory_per_token()
+        total_bandwidth = performance_limits["total_bandwidth_gbps"] * 1e9   # GB/s转换为B/s
         actual_throughput = self._estimate_throughput(model, system_spec)
-        theoretical_bandwidth_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
         memory_bandwidth_utilization = min((actual_throughput * memory_per_token) / total_bandwidth * 100, 100) if total_bandwidth > 0 else 0
         
-        # 5. 整体利用率：取各项利用率的加权平均
+        # 4. 整体利用率：取各项利用率的加权平均
         # 这里使用存储容量利用率作为主要指标，因为它最直观
         overall_utilization = memory_capacity_utilization
         
@@ -245,20 +283,16 @@ class PerformanceEstimator:
         # 内存利用率 (存储利用率)
         memory_utilization = min(memory_usage / total_memory * 100, 100) if total_memory > 0 else 0
         
-        # 计算算力利用率
-        flops_per_token = model.estimate_flops_per_token()
-        memory_per_token = model.estimate_memory_per_token()
-        total_compute = system_spec.get_total_compute_capability() * 1e12  # TFLOPS转换为FLOPS
-        total_bandwidth = system_spec.get_total_memory_bandwidth() * 1e9   # GB/s转换为B/s
+        # 使用统一的性能限制计算
+        performance_limits = self._calculate_performance_limits(model, system_spec)
         
-        # 计算理论最大吞吐量
-        compute_limited_tps = total_compute / flops_per_token if flops_per_token > 0 else float('inf')
-        memory_limited_tps = total_bandwidth / memory_per_token if memory_per_token > 0 else float('inf')
-        
-        # 实际吞吐量受限于较小的那个
-        actual_tps = min(compute_limited_tps, memory_limited_tps)
+        compute_limited_tps = performance_limits["compute_limited_tps"]
+        memory_limited_tps = performance_limits["memory_limited_tps"]
+        actual_tps = performance_limits["actual_tps"]
         
         # 算力利用率：实际使用的算力 / 总算力
+        flops_per_token = model.estimate_flops_per_token()
+        total_compute = performance_limits["total_compute_tflops"] * 1e12  # TFLOPS转换为FLOPS
         compute_utilization = min((actual_tps * flops_per_token) / total_compute * 100, 100) if total_compute > 0 else 0
         
         # 确定瓶颈类型和详细信息

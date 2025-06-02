@@ -128,20 +128,31 @@ class AcceleratorSpec(ABC):
         估算首token延迟
         
         Args:
-            workload: 工作负载描述
+            workload: 工作负载描述，应包含:
+                - flops_per_token: 每个token的浮点运算量
+                - model_size_gb: 模型大小(GB)，用于计算内存读取时间
+                - memory_overhead_ms: 其他内存开销(ms)，默认5ms
             
         Returns:
             延迟 (ms)
         """
         flops_per_token = workload.get("flops_per_token", 0)
+        model_size_gb = workload.get("model_size_gb", 0)
         
-        # 计算时间（秒）
+        # 计算时间（秒）- 受算力限制
         compute_time = flops_per_token / (self.compute_capability_tflops * 1e12)
         
-        # 加上内存访问延迟等开销
+        # 内存读取时间（秒）- 受内存带宽限制
+        # 首token需要读取完整模型权重
+        memory_read_time = model_size_gb / self.memory_bandwidth_gb_s
+        
+        # 取计算时间和内存读取时间的较大值（瓶颈）
+        bottleneck_time = max(compute_time, memory_read_time)
+        
+        # 加上其他开销
         memory_overhead = workload.get("memory_overhead_ms", 5.0) / 1000  # 默认5ms开销
         
-        total_latency_s = compute_time + memory_overhead
+        total_latency_s = bottleneck_time + memory_overhead
         
         return total_latency_s * 1000  # 转换为毫秒
     
