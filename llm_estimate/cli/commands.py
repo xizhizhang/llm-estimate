@@ -89,6 +89,223 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
         raise click.Abort()
 
 
+@cli.command("estimate-ops")
+@click.option("--model", "-m", required=True, help="模型名称")
+@click.option("--accelerator", "-a", help="加速器型号 (如: rtx-4090, a100-40gb, i9-13900k)")
+@click.option("--accelerators", help="多个加速器，逗号分隔 (如: rtx-4090,a100-40gb)")
+@click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
+@click.option("--context-length", "-l", type=int, help="上下文长度")
+@click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
+@click.option("--output", "-o", type=click.Path(), help="输出文件路径")
+@click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
+@click.option("--show-ops", is_flag=True, help="显示详细的操作分解")
+@click.option("--top-ops", type=int, default=10, help="显示前N个最耗时的操作")
+@click.option("--detailed", is_flag=True, help="显示完整的详细分析")
+def estimate_ops(model: str, accelerator: Optional[str], accelerators: Optional[str],
+                batch_size: int, context_length: Optional[int], precision: str,
+                output: Optional[str], format: str, show_ops: bool, top_ops: int, detailed: bool):
+    """
+    执行操作级别的详细性能估算
+    
+    基于矩阵乘法运算的算力和带宽利用率，
+    细化到每个transformer操作的耗时估算。
+    """
+    
+    try:
+        # 创建估算器
+        estimator = PerformanceEstimator()
+        
+        # 构建硬件配置
+        hardware_config = {}
+        
+        # 使用加速器参数
+        if accelerator:
+            hardware_config["accelerator"] = accelerator
+        elif accelerators:
+            acc_list = [acc.strip() for acc in accelerators.split(",")]
+            hardware_config["accelerators"] = acc_list
+        else:
+            raise click.BadParameter("必须指定 --accelerator 或 --accelerators 参数")
+            
+        # 构建模型配置
+        model_config = {
+            "batch_size": batch_size,
+            "precision": precision
+        }
+        if context_length:
+            model_config["context_length"] = context_length
+        
+        # 执行操作级别估算
+        result = estimator.estimate_op_level(
+            model_name=model,
+            hardware_config=hardware_config,
+            model_config=model_config
+        )
+        
+        # 格式化输出
+        if format == "json":
+            formatted_result = json.dumps(result, indent=2, ensure_ascii=False)
+        else:
+            formatted_result = format_op_level_results(result, show_ops, top_ops, detailed)
+        
+        # 输出结果
+        if output:
+            with open(output, 'w', encoding='utf-8') as f:
+                f.write(formatted_result)
+            click.echo(f"结果已保存到: {output}")
+        else:
+            click.echo(formatted_result)
+            
+    except Exception as e:
+        click.echo(f"错误: {e}", err=True)
+        raise click.Abort()
+
+
+def format_op_level_results(result: Dict[str, Any], show_ops: bool = False, 
+                           top_ops: int = 10, detailed: bool = False) -> str:
+    """格式化操作级别估算结果"""
+    output = []
+    
+    # 基本信息
+    output.append("=" * 60)
+    output.append("操作级别性能估算结果")
+    output.append("=" * 60)
+    
+    model_info = result["model_info"]
+    system_info = result["system_info"]
+    op_analysis = result["op_level_analysis"]
+    traditional_analysis = result["traditional_analysis"]
+    comparison = result["comparison"]
+    
+    # 模型信息
+    output.append(f"\n模型: {model_info['name']}")
+    output.append(f"参数量: {model_info['parameters']}")
+    output.append(f"层数: {model_info['layers']}")
+    output.append(f"配置: batch_size={model_info['config']['batch_size']}, "
+                 f"context_length={model_info['config']['context_length']}, "
+                 f"precision={model_info['config']['precision']}")
+    
+    # 硬件信息
+    output.append(f"\n硬件配置:")
+    for acc in system_info["accelerators"]:
+        output.append(f"  - {acc['name']}: {acc['compute_capability_tflops']:.1f} TFLOPS, "
+                     f"{acc['memory_bandwidth_gb_s']:.0f} GB/s, {acc['memory_capacity_gb']:.0f} GB")
+    
+    # 性能对比
+    output.append(f"\n性能对比:")
+    output.append(f"  操作级别估算: {op_analysis['throughput_tokens_per_sec']:.1f} tokens/s")
+    output.append(f"  传统估算:     {traditional_analysis['throughput_tokens_per_sec']:.1f} tokens/s")
+    output.append(f"  差异:         {comparison['throughput_difference_percent']:+.1f}%")
+    output.append(f"  估算准确性:   {comparison['accuracy_note']}")
+    
+    # 瓶颈分析
+    bottleneck = op_analysis["bottleneck_analysis"]
+    output.append(f"\n瓶颈分析:")
+    output.append(f"  主要瓶颈: {bottleneck['major_bottleneck']}")
+    output.append(f"  算力受限操作: {bottleneck['compute_bound_ops_count']} 个 "
+                 f"({bottleneck['compute_bound_percentage']:.1f}%)")
+    output.append(f"  内存受限操作: {bottleneck['memory_bound_ops_count']} 个 "
+                 f"({bottleneck['memory_bound_percentage']:.1f}%)")
+    
+    # 操作类型分解
+    output.append(f"\n操作类型分解:")
+    op_breakdown = op_analysis["op_breakdown"]
+    
+    # 准备表格数据
+    table_data = []
+    for op_type, stats in op_breakdown.items():
+        percentage = (stats["total_time_ms"] / op_analysis["total_time_per_token_ms"] * 100) if op_analysis["total_time_per_token_ms"] > 0 else 0
+        table_data.append([
+            op_type,
+            stats["count"],
+            f"{stats['total_time_ms']:.3f}",
+            f"{percentage:.1f}%",
+            f"{stats['avg_compute_util']:.1f}%",
+            f"{stats['avg_memory_util']:.1f}%"
+        ])
+    
+    # 按时间排序
+    table_data.sort(key=lambda x: float(x[2]), reverse=True)
+    
+    headers = ["操作类型", "数量", "总时间(ms)", "占比", "算力利用率", "内存利用率"]
+    table = tabulate(table_data, headers=headers, tablefmt="grid")
+    output.append(table)
+    
+    # 主要瓶颈操作
+    if comparison["major_bottleneck_ops"]:
+        output.append(f"\n主要瓶颈操作 (前{min(top_ops, len(comparison['major_bottleneck_ops']))}个):")
+        
+        bottleneck_data = []
+        for i, op in enumerate(comparison["major_bottleneck_ops"][:top_ops]):
+            bottleneck_data.append([
+                i + 1,
+                op["name"],
+                op["type"],
+                f"{op['time_ms']:.3f}",
+                f"{op['percentage']:.1f}%",
+                op["bottleneck_type"],
+                op.get("gemm_shape", "N/A")
+            ])
+        
+        headers = ["#", "操作名称", "类型", "时间(ms)", "占比", "瓶颈", "矩阵形状"]
+        table = tabulate(bottleneck_data, headers=headers, tablefmt="grid")
+        output.append(table)
+    
+    # 详细操作列表
+    if show_ops:
+        output.append(f"\n详细操作列表 (前{top_ops}个最耗时):")
+        detailed_ops = sorted(op_analysis["detailed_ops"], 
+                            key=lambda x: x["time_ms"], reverse=True)[:top_ops]
+        
+        ops_data = []
+        for op in detailed_ops:
+            ops_data.append([
+                op["name"],
+                op["type"],
+                f"{op['time_ms']:.4f}",
+                f"{op['arithmetic_intensity']:.2f}",
+                f"{op['compute_util']:.1f}%",
+                f"{op['memory_util']:.1f}%",
+                "✓" if op["is_gemm"] else "✗",
+                op.get("gemm_shape", "N/A")
+            ])
+        
+        headers = ["操作名称", "类型", "时间(ms)", "算术强度", "算力%", "内存%", "GEMM", "形状"]
+        table = tabulate(ops_data, headers=headers, tablefmt="grid")
+        output.append(table)
+    
+    # 优化建议
+    output.append(f"\n优化建议:")
+    recommendations = result["comprehensive_recommendations"]
+    for rec in recommendations:
+        output.append(f"  {rec}")
+    
+    # 详细分析
+    if detailed:
+        output.append(f"\n详细性能分析:")
+        output.append(f"  总计算量: {op_analysis['total_flops']:.2e} FLOPs")
+        output.append(f"  总内存访问: {op_analysis['total_memory_bytes'] / 1024**3:.2f} GB")
+        output.append(f"  单token时间: {op_analysis['total_time_per_token_ms']:.3f} ms")
+        
+        # 层级分解
+        output.append(f"\n层级时间分解:")
+        layer_data = []
+        for layer in op_analysis["layer_breakdown"]:
+            layer_data.append([
+                layer["layer_idx"] if layer["layer_idx"] >= 0 else "LM_Head",
+                layer["layer_type"],
+                layer["op_count"],
+                f"{layer['time_ms']:.3f}",
+                f"{layer['percentage']:.1f}%"
+            ])
+        
+        headers = ["层索引", "层类型", "操作数", "时间(ms)", "占比"]
+        table = tabulate(layer_data, headers=headers, tablefmt="grid")
+        output.append(table)
+    
+    return "\n".join(output)
+
+
 @cli.command()
 def list_models():
     """列出支持的模型"""

@@ -10,12 +10,17 @@ __author__ = "Zhang Weimin"
 __email__ = "zhangwm@example.com"
 
 from .estimator.base import PerformanceEstimator
+from .estimator.op_level_estimator import OpLevelEstimator, OpType, OpProfile, LayerProfile
 from .models.registry import ModelRegistry
 from .hardware.base import AcceleratorSpec, SystemSpec
 from .hardware.accelerator import create_accelerator, list_supported_accelerators
 
 __all__ = [
     "PerformanceEstimator",
+    "OpLevelEstimator",
+    "OpType", 
+    "OpProfile",
+    "LayerProfile",
     "ModelRegistry", 
     "AcceleratorSpec",
     "SystemSpec",
