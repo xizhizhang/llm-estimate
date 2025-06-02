@@ -40,7 +40,7 @@ def cli():
 def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str],
             batch_size: int, context_length: Optional[int], precision: str,
             output: Optional[str], format: str, verbose: bool):
-    """估算模型性能"""
+    """估算模型性能（基于操作级别的详细分析）"""
     
     try:
         # 创建估算器
@@ -66,15 +66,50 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
         if context_length:
             model_config["context_length"] = context_length
         
-        # 执行估算
-        result = estimator.estimate(
+        # 执行操作级别估算
+        result = estimator.estimate_op_level(
             model_name=model,
             hardware_config=hardware_config,
             model_config=model_config
         )
         
+        # 提取主要性能指标用于格式化
+        op_analysis = result["op_level_analysis"]
+        
+        # 从操作级别分析计算各种利用率
+        bottleneck_analysis = op_analysis["bottleneck_analysis"]
+        compute_utilization = bottleneck_analysis["compute_bound_percentage"]
+        memory_utilization = bottleneck_analysis["memory_bound_percentage"]
+        overall_utilization = max(compute_utilization, memory_utilization)
+        
+        simplified_result = {
+            "model_name": model,
+            "model_info": result["model_info"],
+            "system_info": result["system_info"],
+            "throughput_tokens_per_sec": op_analysis["throughput_tokens_per_sec"],
+            "latency_ms": op_analysis["total_time_per_token_ms"],
+            "memory_usage_gb": result["traditional_analysis"]["memory_usage_gb"],
+            "bottleneck": bottleneck_analysis["major_bottleneck"],
+            "utilization_percent": overall_utilization,
+            "compute_utilization_percent": compute_utilization,
+            "memory_bandwidth_utilization_percent": memory_utilization,
+            "memory_capacity_utilization_percent": memory_utilization,
+            "compute_util": compute_utilization,
+            "memory_util": memory_utilization
+        }
+        
         # 格式化输出
-        formatted_result = format_results(result, format, verbose)
+        if format == "json":
+            formatted_result = json.dumps(simplified_result, indent=2, ensure_ascii=False)
+        elif format == "csv":
+            formatted_result = format_results(simplified_result, format, verbose)
+        else:  # table format
+            if verbose:
+                # 详细输出：显示操作级别分析
+                formatted_result = format_op_level_results(result, show_ops=True, top_ops=15, detailed=True)
+            else:
+                # 简化输出：只显示主要指标
+                formatted_result = format_results(simplified_result, format, verbose)
         
         # 输出结果
         if output:
@@ -423,7 +458,7 @@ def show_interactive_help():
 @click.option("--accelerator", "-a", required=True, help="加速器型号")
 @click.option("--output", "-o", type=click.Path(), help="输出文件路径")
 def compare(models: str, accelerator: str, output: Optional[str]):
-    """比较多个模型的性能"""
+    """比较多个模型的性能（基于操作级别的详细分析）"""
     
     model_list = [m.strip() for m in models.split(",")]
     estimator = PerformanceEstimator()
@@ -431,13 +466,40 @@ def compare(models: str, accelerator: str, output: Optional[str]):
     results = []
     for model_name in model_list:
         try:
-            result = estimator.estimate(
+            # 使用操作级别估算
+            result = estimator.estimate_op_level(
                 model_name=model_name,
                 hardware_config={"accelerator": accelerator}
             )
+            
+            # 提取主要指标
+            op_analysis = result["op_level_analysis"]
+            
+            # 从操作级别分析计算各种利用率
+            bottleneck_analysis = op_analysis["bottleneck_analysis"]
+            compute_utilization = bottleneck_analysis["compute_bound_percentage"]
+            memory_utilization = bottleneck_analysis["memory_bound_percentage"]
+            overall_utilization = max(compute_utilization, memory_utilization)
+            
+            simplified_result = {
+                "model_name": model_name,
+                "model_info": result["model_info"],
+                "system_info": result["system_info"],
+                "throughput_tokens_per_sec": op_analysis["throughput_tokens_per_sec"],
+                "latency_ms": op_analysis["total_time_per_token_ms"],
+                "memory_usage_gb": result["traditional_analysis"]["memory_usage_gb"],
+                "bottleneck": bottleneck_analysis["major_bottleneck"],
+                "utilization_percent": overall_utilization,
+                "compute_utilization_percent": compute_utilization,
+                "memory_bandwidth_utilization_percent": memory_utilization,
+                "memory_capacity_utilization_percent": memory_utilization,
+                "compute_util": compute_utilization,
+                "memory_util": memory_utilization
+            }
+            
             results.append({
                 "model": model_name,
-                "result": result
+                "result": simplified_result
             })
         except Exception as e:
             click.echo(f"估算 {model_name} 时出错: {e}")
@@ -467,7 +529,7 @@ def compare(models: str, accelerator: str, output: Optional[str]):
 @click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
 def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: str, 
               batch_size: int, precision: str, output_file: Optional[str], format: str):
-    """预估模型在不同输入/输出长度下的 TTFT 和 TPOT 指标
+    """预估模型在不同输入/输出长度下的 TTFT 和 TPOT 指标（基于操作级别的详细分析）
     
     TTFT (Time To First Token): 从开始推理到产生第一个token的时间
     TPOT (Time Per Output Token): 每个输出token的平均生成时间
@@ -500,52 +562,110 @@ def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: 
                     "max_new_tokens": output_len
                 }
                 
-                # 执行估算
-                result = estimator.estimate(
+                # 执行操作级别估算
+                result = estimator.estimate_op_level(
                     model_name=model,
                     hardware_config=hardware_config,
                     model_config=model_config
                 )
                 
-                # 提取 TTFT 和 TPOT 指标
-                ttft_ms = result.get('ttft_ms', 0)  # Time To First Token
-                tpot_ms = result.get('tpot_ms', 0)  # Time Per Output Token
+                # 从操作级别分析中提取指标
+                op_analysis = result["op_level_analysis"]
                 
-                # 如果没有直接的 TTFT/TPOT，从其他指标计算
-                if ttft_ms == 0 or tpot_ms == 0:
-                    latency_ms = result.get('latency_ms', 0)
-                    throughput = result.get('throughput_tokens_per_sec', 0)
+                # 重新计算真实的 TPOT 和 TTFT：
+                # 1. TTFT = prefill阶段处理完整输入序列的时间
+                # 2. TPOT = 基于当前序列长度的单token decode时间（会随序列增长而增加）
+                
+                # 获取prefill阶段的时间
+                # prefill时间 = 处理完整输入序列的时间
+                prefill_result = estimator.estimate_op_level(
+                    model_name=model,
+                    hardware_config=hardware_config,
+                    model_config={
+                        "batch_size": batch_size,
+                        "precision": precision,
+                        "context_length": input_len,  # 完整输入序列
+                        "max_new_tokens": 1
+                    }
+                )
+                prefill_analysis = prefill_result["op_level_analysis"]
+                
+                # TTFT: prefill阶段处理整个输入序列的时间
+                # 注意：这里的 total_time_per_token_ms 实际上是"每个token的平均时间"
+                # 所以 prefill 总时间 = 平均时间 * 序列长度
+                ttft_ms = prefill_analysis["total_time_per_token_ms"] * input_len
+                
+                # 计算 TPOT：更准确的方法是考虑序列长度随时间的增长
+                # 在解码过程中，序列长度从 input_len 增长到 input_len + output_len
+                # 我们计算起始和结束时的token生成时间，然后取平均值
+                
+                # 计算在输入序列长度基础上的第一个token生成时间
+                start_decode_result = estimator.estimate_op_level(
+                    model_name=model,
+                    hardware_config=hardware_config,
+                    model_config={
+                        "batch_size": batch_size,
+                        "precision": precision,
+                        "context_length": input_len,  # 刚开始解码时的序列长度
+                        "max_new_tokens": 1
+                    }
+                )
+                start_tpot_ms = start_decode_result["op_level_analysis"]["total_time_per_token_ms"]
+                
+                # 计算在最终序列长度基础上的token生成时间
+                end_decode_result = estimator.estimate_op_level(
+                    model_name=model,
+                    hardware_config=hardware_config,
+                    model_config={
+                        "batch_size": batch_size,
+                        "precision": precision,
+                        "context_length": input_len + output_len - 1,  # 解码结束时的序列长度
+                        "max_new_tokens": 1
+                    }
+                )
+                end_tpot_ms = end_decode_result["op_level_analysis"]["total_time_per_token_ms"]
+                
+                # TPOT: 取起始和结束token生成时间的平均值
+                # 这更准确地反映了整个解码过程中的平均token生成时间
+                tpot_ms = (start_tpot_ms + end_tpot_ms) / 2
+                
+                # 使用更精确的总延迟计算：
+                # 对于不同的输出长度，采用不同的计算策略
+                if output_len == 1:
+                    # 只有一个输出token，总延迟就是 TTFT
+                    total_latency_ms = ttft_ms
+                    total_decode_time = 0
+                else:
+                    # 多个输出token，需要计算后续token的解码时间
+                    total_decode_time = 0
+                    # 线性插值计算每个输出token的生成时间
+                    for i in range(output_len - 1):
+                        # 当前序列长度：input_len + i + 1 (因为已经生成了i个token)
+                        if output_len > 2:
+                            progress = i / (output_len - 2)
+                        else:
+                            progress = 0
+                        current_tpot = start_tpot_ms + progress * (end_tpot_ms - start_tpot_ms)
+                        total_decode_time += current_tpot
                     
-                    if throughput > 0:
-                        tpot_ms = 1000 / throughput  # 每个token的时间(ms)
-                    
-                    # TTFT 计算：基于输入长度和模型推理特性
-                    # TTFT 主要由 prefill 阶段决定，与输入长度相关
-                    # 对于自回归模型，prefill 时间通常比单个 decode 步骤稍长
-                    if input_len > 0 and tpot_ms > 0:
-                        # TTFT ≈ prefill_time，通常比 TPOT 高 20-50%
-                        # 这里用简化模型：TTFT = base_time + input_processing_time
-                        base_prefill_overhead = tpot_ms * 1.3  # prefill 比 decode 慢 30%
-                        input_processing_factor = max(1.0, input_len / 1024)  # 长输入需要更多时间
-                        ttft_ms = base_prefill_overhead * input_processing_factor
-                    elif latency_ms > 0 and output_len > 1:
-                        # 备选方案：假设总延迟 = TTFT + (output_len-1) * TPOT
-                        # 重新计算 TTFT
-                        estimated_decode_time = (output_len - 1) * tpot_ms
-                        ttft_ms = max(tpot_ms * 0.5, latency_ms - estimated_decode_time)
-                    else:
-                        ttft_ms = tpot_ms  # 最后的备选方案
+                    # 总延迟 = TTFT + 后续token的解码时间
+                    total_latency_ms = ttft_ms + total_decode_time
                 
-                # 重新计算总延迟：TTFT + (output_len - 1) * TPOT
-                # 这表示生成第一个token的时间 + 生成剩余token的时间
-                total_latency_ms = ttft_ms + (output_len - 1) * tpot_ms
+                # 使用decode过程中的典型利用率（基于中等序列长度）
+                decode_analysis = start_decode_result["op_level_analysis"]
                 
-                # 重新计算吞吐量：总token数 / 总耗时
-                # 总token数 = 输入长度 + 输出长度
-                # 总耗时 = 总延迟（转换为秒）
+                # 计算总延迟和吞吐量
                 total_tokens = input_len + output_len
-                total_latency_s = total_latency_ms / 1000  # 转换为秒
-                actual_throughput = total_tokens / total_latency_s if total_latency_s > 0 else 0
+                actual_throughput = total_tokens / (total_latency_ms / 1000) if total_latency_ms > 0 else 0
+                
+                # 获取其他指标
+                memory_usage_gb = result["traditional_analysis"]["memory_usage_gb"]
+                
+                # 使用decode阶段的利用率作为主要指标（因为这是推理的常态）
+                utilization_percent = max(
+                    decode_analysis["bottleneck_analysis"]["compute_bound_percentage"],
+                    decode_analysis["bottleneck_analysis"]["memory_bound_percentage"]
+                )
                 
                 results.append({
                     "input_length": input_len,
@@ -554,8 +674,11 @@ def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: 
                     "tpot_ms": tpot_ms,
                     "total_latency_ms": total_latency_ms,
                     "throughput_tokens_per_sec": actual_throughput,
-                    "memory_usage_gb": result.get('memory_usage_gb', 0),
-                    "utilization_percent": result.get('utilization_percent', 0)
+                    "memory_usage_gb": memory_usage_gb,
+                    "utilization_percent": utilization_percent,
+                    "bottleneck": decode_analysis["bottleneck_analysis"]["major_bottleneck"],
+                    "compute_util": decode_analysis["bottleneck_analysis"]["compute_bound_percentage"],
+                    "memory_util": decode_analysis["bottleneck_analysis"]["memory_bound_percentage"]
                 })
                 
             except Exception as e:
@@ -589,7 +712,7 @@ def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: 
 def format_comparison_results(results) -> str:
     """格式化模型比较结果"""
     lines = []
-    lines.append("=== 模型性能比较 ===\n")
+    lines.append("=== 模型性能比较（操作级别分析）===\n")
     
     data = []
     for item in results:
@@ -601,12 +724,40 @@ def format_comparison_results(results) -> str:
             f"{result.get('memory_usage_gb', 0):.2f} GB",
             f"{result.get('throughput_tokens_per_sec', 0):.1f} tokens/s",
             f"{result.get('latency_ms', 0):.1f} ms",
-            result.get('bottleneck', 'N/A')
+            f"{result.get('utilization_percent', 0):.1f}%",
+            result.get('bottleneck', 'N/A'),
+            f"{result.get('compute_util', 0):.1f}%",
+            f"{result.get('memory_util', 0):.1f}%"
         ])
     
-    headers = ["模型", "内存使用", "吞吐量", "延迟", "瓶颈"]
+    headers = ["模型", "内存使用", "吞吐量", "延迟", "整体利用率", "瓶颈", "算力利用率", "内存利用率"]
     table = tabulate(data, headers=headers, tablefmt="grid")
     lines.append(table)
+    
+    # 添加性能排名
+    if len(results) > 1:
+        lines.append("\n=== 性能排名 ===")
+        
+        # 按吞吐量排序
+        throughput_ranking = sorted(results, key=lambda x: x["result"].get('throughput_tokens_per_sec', 0), reverse=True)
+        lines.append("\n吞吐量排名:")
+        for i, item in enumerate(throughput_ranking, 1):
+            result = item["result"]
+            lines.append(f"  {i}. {item['model']}: {result.get('throughput_tokens_per_sec', 0):.1f} tokens/s")
+        
+        # 按延迟排序
+        latency_ranking = sorted(results, key=lambda x: x["result"].get('latency_ms', float('inf')))
+        lines.append("\n延迟排名 (越低越好):")
+        for i, item in enumerate(latency_ranking, 1):
+            result = item["result"]
+            lines.append(f"  {i}. {item['model']}: {result.get('latency_ms', 0):.1f} ms")
+        
+        # 按内存使用排序
+        memory_ranking = sorted(results, key=lambda x: x["result"].get('memory_usage_gb', 0))
+        lines.append("\n内存使用排名 (越低越好):")
+        for i, item in enumerate(memory_ranking, 1):
+            result = item["result"]
+            lines.append(f"  {i}. {item['model']}: {result.get('memory_usage_gb', 0):.2f} GB")
     
     return "\n".join(lines)
 
@@ -623,7 +774,7 @@ def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
     
     elif output_format == "csv":
         lines = []
-        lines.append("模型,加速器,输入长度,输出长度,TTFT(ms),TPOT(ms),总延迟(ms),吞吐量(tokens/s),内存使用(GB),利用率(%)")
+        lines.append("模型,加速器,输入长度,输出长度,TTFT(ms),TPOT(ms),总延迟(ms),吞吐量(tokens/s),内存使用(GB),利用率(%),瓶颈类型,算力利用率(%),内存利用率(%)")
         
         for item in results:
             if "error" in item:
@@ -631,12 +782,13 @@ def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
             lines.append(f"{model},{accelerator},{item['input_length']},{item['output_length']},"
                         f"{item['ttft_ms']:.1f},{item['tpot_ms']:.1f},{item['total_latency_ms']:.1f},"
                         f"{item['throughput_tokens_per_sec']:.1f},{item['memory_usage_gb']:.2f},"
-                        f"{item['utilization_percent']:.1f}")
+                        f"{item['utilization_percent']:.1f},{item.get('bottleneck', 'N/A')},"
+                        f"{item.get('compute_util', 0):.1f},{item.get('memory_util', 0):.1f}")
         return "\n".join(lines)
     
     else:  # table format
         lines = []
-        lines.append(f"=== TTFT & TPOT 基准测试结果 ===")
+        lines.append(f"=== TTFT & TPOT 基准测试结果（操作级别分析）===")
         lines.append(f"模型: {model}")
         lines.append(f"加速器: {accelerator}")
         lines.append("")
@@ -652,6 +804,7 @@ def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
                     "错误",
                     "错误",
                     "错误",
+                    "错误",
                     "错误"
                 ])
             else:
@@ -663,10 +816,11 @@ def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
                     f"{item['total_latency_ms']:.1f} ms",
                     f"{item['throughput_tokens_per_sec']:.1f} tokens/s",
                     f"{item['memory_usage_gb']:.2f} GB",
-                    f"{item['utilization_percent']:.1f}%"
+                    f"{item['utilization_percent']:.1f}%",
+                    f"{item.get('bottleneck', 'N/A')}"
                 ])
         
-        headers = ["输入长度", "输出长度", "TTFT", "TPOT", "总延迟", "吞吐量", "内存使用", "利用率"]
+        headers = ["输入长度", "输出长度", "TTFT", "TPOT", "总延迟", "吞吐量", "内存使用", "利用率", "瓶颈"]
         table = tabulate(data, headers=headers, tablefmt="grid")
         lines.append(table)
         
@@ -677,10 +831,25 @@ def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
             avg_ttft = sum(r['ttft_ms'] for r in successful_results) / len(successful_results)
             avg_tpot = sum(r['tpot_ms'] for r in successful_results) / len(successful_results)
             avg_throughput = sum(r['throughput_tokens_per_sec'] for r in successful_results) / len(successful_results)
+            avg_compute_util = sum(r.get('compute_util', 0) for r in successful_results) / len(successful_results)
+            avg_memory_util = sum(r.get('memory_util', 0) for r in successful_results) / len(successful_results)
             
             lines.append(f"平均 TTFT: {avg_ttft:.1f} ms")
             lines.append(f"平均 TPOT: {avg_tpot:.1f} ms")  
             lines.append(f"平均吞吐量: {avg_throughput:.1f} tokens/s")
+            lines.append(f"平均算力利用率: {avg_compute_util:.1f}%")
+            lines.append(f"平均内存利用率: {avg_memory_util:.1f}%")
+            
+            # 瓶颈分析统计
+            bottleneck_counts = {}
+            for r in successful_results:
+                bottleneck = r.get('bottleneck', 'Unknown')
+                bottleneck_counts[bottleneck] = bottleneck_counts.get(bottleneck, 0) + 1
+            
+            lines.append(f"\n瓶颈分布:")
+            for bottleneck, count in bottleneck_counts.items():
+                percentage = (count / len(successful_results)) * 100
+                lines.append(f"  {bottleneck}: {count} 次 ({percentage:.1f}%)")
         
         return "\n".join(lines)
 
