@@ -22,84 +22,24 @@ ACCELERATOR_SPECS = {
         name="RTX-4090",
         manufacturer="NVIDIA",
         device_type="gpu",
-        compute_capability_tflops=83.0,  # FP32算力
+        compute_capability_tflops=660.0,  # Tensor Core FP16/BF16算力（稠密）
         memory_bandwidth_gb_s=1008.0,
         memory_capacity_gb=24.0,
         release_year=2022,
         price_usd=1599,
         power_consumption_w=450
     ),
-    
-    "rtx-4080": AcceleratorSpecs(
-        name="RTX-4080",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=48.7,
-        memory_bandwidth_gb_s=717.0,
-        memory_capacity_gb=16.0,
-        release_year=2022,
-        price_usd=1199,
-        power_consumption_w=320
-    ),
-    
-    "rtx-3090": AcceleratorSpecs(
-        name="RTX-3090",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=35.6,
-        memory_bandwidth_gb_s=936.0,
-        memory_capacity_gb=24.0,
-        release_year=2020,
-        price_usd=1499,
-        power_consumption_w=350
-    ),
-    
-    "a100-40gb": AcceleratorSpecs(
-        name="A100-40GB",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=19.5,  # FP32算力
-        memory_bandwidth_gb_s=1555.0,
-        memory_capacity_gb=40.0,
-        release_year=2020,
-        price_usd=10000,
-        power_consumption_w=400
-    ),
-    
-    "a100-80gb": AcceleratorSpecs(
-        name="A100-80GB",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=19.5,
-        memory_bandwidth_gb_s=1935.0,
-        memory_capacity_gb=80.0,
-        release_year=2021,
-        price_usd=15000,
-        power_consumption_w=400
-    ),
-    
+
     "h100": AcceleratorSpecs(
         name="H100-80GB",
         manufacturer="NVIDIA",
         device_type="gpu",
-        compute_capability_tflops=51.0,  # FP32算力
+        compute_capability_tflops=1979.0,  # Tensor Core BF16/FP16算力（稠密）
         memory_bandwidth_gb_s=2039.0,
         memory_capacity_gb=80.0,
         release_year=2022,
         price_usd=25000,
         power_consumption_w=700
-    ),
-    
-    "v100": AcceleratorSpecs(
-        name="V100-32GB",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=14.0,
-        memory_bandwidth_gb_s=900.0,
-        memory_capacity_gb=32.0,
-        release_year=2017,
-        price_usd=8000,
-        power_consumption_w=300
     ),
     
     # Intel CPU系列（作为加速器）
@@ -112,18 +52,6 @@ ACCELERATOR_SPECS = {
         memory_capacity_gb=128.0,      # 最大支持内存
         release_year=2022,
         price_usd=589,
-        power_consumption_w=125
-    ),
-    
-    "i7-13700k": AcceleratorSpecs(
-        name="i7-13700K",
-        manufacturer="Intel",
-        device_type="cpu",
-        compute_capability_tflops=1.0,
-        memory_bandwidth_gb_s=76.8,
-        memory_capacity_gb=128.0,
-        release_year=2022,
-        price_usd=409,
         power_consumption_w=125
     ),
     
@@ -150,18 +78,6 @@ ACCELERATOR_SPECS = {
         memory_capacity_gb=192.0,
         release_year=2023,
         price_usd=5000,  # 估算
-        power_consumption_w=100
-    ),
-    
-    "m1-ultra": AcceleratorSpecs(
-        name="M1-Ultra",
-        manufacturer="Apple",
-        device_type="soc",
-        compute_capability_tflops=21.0,
-        memory_bandwidth_gb_s=800.0,
-        memory_capacity_gb=128.0,
-        release_year=2022,
-        price_usd=4000,
         power_consumption_w=100
     ),
     
