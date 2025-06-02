@@ -196,6 +196,7 @@ def show_interactive_help():
 示例:
   estimate --model llama-2-7b --accelerator rtx-4090
   estimate --model qwen-7b --accelerators rtx-4090,a100-40gb
+  benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024 --output-lengths 128,256
   """
     click.echo(help_text)
 
@@ -239,41 +240,133 @@ def compare(models: str, accelerator: str, output: Optional[str]):
 
 
 @cli.command()
-@click.option("--accelerators", "-a", required=True, help="加速器列表，逗号分隔")
-@click.option("--model", "-m", default="llama-2-7b", help="基准模型")
-@click.option("--output", "-o", type=click.Path(), help="输出文件路径")
-def benchmark(accelerators: str, model: str, output: Optional[str]):
-    """对比多个加速器在同一模型下的性能"""
+@click.option("--model", "-m", required=True, help="模型名称")
+@click.option("--accelerator", "-a", required=True, help="加速器型号")
+@click.option("--input-lengths", "-i", default="128,512,1024,2048", help="输入长度列表，逗号分隔")
+@click.option("--output-lengths", "-o", default="128,256,512", help="输出长度列表，逗号分隔")
+@click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
+@click.option("--precision", "-p", default="fp16", help="精度类型")
+@click.option("--output-file", type=click.Path(), help="输出文件路径")
+@click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
+def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: str, 
+              batch_size: int, precision: str, output_file: Optional[str], format: str):
+    """预估模型在不同输入/输出长度下的 TTFT 和 TPOT 指标
     
-    acc_list = [acc.strip() for acc in accelerators.split(",")]
+    TTFT (Time To First Token): 从开始推理到产生第一个token的时间
+    TPOT (Time Per Output Token): 每个输出token的平均生成时间
+    """
+    
+    input_length_list = [int(x.strip()) for x in input_lengths.split(",")]
+    output_length_list = [int(x.strip()) for x in output_lengths.split(",")]
+    
     estimator = PerformanceEstimator()
     
     results = []
-    for acc_name in acc_list:
-        try:
-            result = estimator.estimate(
-                model_name=model,
-                hardware_config={"accelerator": acc_name}
-            )
-            results.append({
-                "accelerator": acc_name,
-                "result": result
-            })
-        except Exception as e:
-            click.echo(f"测试 {acc_name} 时出错: {e}")
+    total_tests = len(input_length_list) * len(output_length_list)
+    current_test = 0
+    
+    click.echo(f"开始基准测试: {model} @ {accelerator}")
+    click.echo(f"总共需要测试 {total_tests} 种配置...")
+    
+    for input_len in input_length_list:
+        for output_len in output_length_list:
+            current_test += 1
+            click.echo(f"测试 [{current_test}/{total_tests}]: 输入长度={input_len}, 输出长度={output_len}")
+            
+            try:
+                # 构建配置
+                hardware_config = {"accelerator": accelerator}
+                model_config = {
+                    "batch_size": batch_size,
+                    "precision": precision,
+                    "context_length": input_len,
+                    "max_new_tokens": output_len
+                }
+                
+                # 执行估算
+                result = estimator.estimate(
+                    model_name=model,
+                    hardware_config=hardware_config,
+                    model_config=model_config
+                )
+                
+                # 提取 TTFT 和 TPOT 指标
+                ttft_ms = result.get('ttft_ms', 0)  # Time To First Token
+                tpot_ms = result.get('tpot_ms', 0)  # Time Per Output Token
+                
+                # 如果没有直接的 TTFT/TPOT，从其他指标计算
+                if ttft_ms == 0 or tpot_ms == 0:
+                    latency_ms = result.get('latency_ms', 0)
+                    throughput = result.get('throughput_tokens_per_sec', 0)
+                    
+                    if throughput > 0:
+                        tpot_ms = 1000 / throughput  # 每个token的时间(ms)
+                    
+                    # TTFT 计算：基于输入长度和模型推理特性
+                    # TTFT 主要由 prefill 阶段决定，与输入长度相关
+                    # 对于自回归模型，prefill 时间通常比单个 decode 步骤稍长
+                    if input_len > 0 and tpot_ms > 0:
+                        # TTFT ≈ prefill_time，通常比 TPOT 高 20-50%
+                        # 这里用简化模型：TTFT = base_time + input_processing_time
+                        base_prefill_overhead = tpot_ms * 1.3  # prefill 比 decode 慢 30%
+                        input_processing_factor = max(1.0, input_len / 1024)  # 长输入需要更多时间
+                        ttft_ms = base_prefill_overhead * input_processing_factor
+                    elif latency_ms > 0 and output_len > 1:
+                        # 备选方案：假设总延迟 = TTFT + (output_len-1) * TPOT
+                        # 重新计算 TTFT
+                        estimated_decode_time = (output_len - 1) * tpot_ms
+                        ttft_ms = max(tpot_ms * 0.5, latency_ms - estimated_decode_time)
+                    else:
+                        ttft_ms = tpot_ms  # 最后的备选方案
+                
+                # 重新计算总延迟：TTFT + (output_len - 1) * TPOT
+                # 这表示生成第一个token的时间 + 生成剩余token的时间
+                total_latency_ms = ttft_ms + (output_len - 1) * tpot_ms
+                
+                # 重新计算吞吐量：总token数 / 总耗时
+                # 总token数 = 输入长度 + 输出长度
+                # 总耗时 = 总延迟（转换为秒）
+                total_tokens = input_len + output_len
+                total_latency_s = total_latency_ms / 1000  # 转换为秒
+                actual_throughput = total_tokens / total_latency_s if total_latency_s > 0 else 0
+                
+                results.append({
+                    "input_length": input_len,
+                    "output_length": output_len,
+                    "ttft_ms": ttft_ms,
+                    "tpot_ms": tpot_ms,
+                    "total_latency_ms": total_latency_ms,
+                    "throughput_tokens_per_sec": actual_throughput,
+                    "memory_usage_gb": result.get('memory_usage_gb', 0),
+                    "utilization_percent": result.get('utilization_percent', 0)
+                })
+                
+            except Exception as e:
+                click.echo(f"  错误: {e}")
+                results.append({
+                    "input_length": input_len,
+                    "output_length": output_len,
+                    "ttft_ms": 0,
+                    "tpot_ms": 0,
+                    "total_latency_ms": 0,
+                    "throughput_tokens_per_sec": 0,
+                    "memory_usage_gb": 0,
+                    "utilization_percent": 0,
+                    "error": str(e)
+                })
     
     # 格式化基准测试结果
     if results:
-        benchmark_table = format_benchmark_results(results)
+        benchmark_table = format_ttft_tpot_results(results, model, accelerator, format)
         
-        if output:
-            with open(output, 'w', encoding='utf-8') as f:
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(benchmark_table)
-            click.echo(f"基准测试结果已保存到: {output}")
+            click.echo(f"基准测试结果已保存到: {output_file}")
         else:
             click.echo(benchmark_table)
     else:
-        click.echo("没有成功测试的加速器")
+        click.echo("没有成功的测试结果")
 
 
 def format_comparison_results(results) -> str:
@@ -301,30 +394,78 @@ def format_comparison_results(results) -> str:
     return "\n".join(lines)
 
 
-def format_benchmark_results(results) -> str:
-    """格式化加速器基准测试结果"""
-    lines = []
-    lines.append("=== 加速器性能基准测试 ===\n")
+def format_ttft_tpot_results(results, model, accelerator, output_format) -> str:
+    """格式化 TTFT 和 TPOT 结果"""
     
-    data = []
-    for item in results:
-        acc_name = item["accelerator"]
-        result = item["result"]
+    if output_format == "json":
+        return json.dumps({
+            "model": model,
+            "accelerator": accelerator,
+            "test_results": results
+        }, indent=2, ensure_ascii=False)
+    
+    elif output_format == "csv":
+        lines = []
+        lines.append("模型,加速器,输入长度,输出长度,TTFT(ms),TPOT(ms),总延迟(ms),吞吐量(tokens/s),内存使用(GB),利用率(%)")
         
-        data.append([
-            acc_name,
-            f"{result.get('memory_usage_gb', 0):.2f} GB",
-            f"{result.get('throughput_tokens_per_sec', 0):.1f} tokens/s",
-            f"{result.get('latency_ms', 0):.1f} ms",
-            f"{result.get('utilization_percent', 0):.1f}%",
-            result.get('bottleneck', 'N/A')
-        ])
+        for item in results:
+            if "error" in item:
+                continue
+            lines.append(f"{model},{accelerator},{item['input_length']},{item['output_length']},"
+                        f"{item['ttft_ms']:.1f},{item['tpot_ms']:.1f},{item['total_latency_ms']:.1f},"
+                        f"{item['throughput_tokens_per_sec']:.1f},{item['memory_usage_gb']:.2f},"
+                        f"{item['utilization_percent']:.1f}")
+        return "\n".join(lines)
     
-    headers = ["加速器", "内存使用", "吞吐量", "延迟", "利用率", "瓶颈"]
-    table = tabulate(data, headers=headers, tablefmt="grid")
-    lines.append(table)
-    
-    return "\n".join(lines)
+    else:  # table format
+        lines = []
+        lines.append(f"=== TTFT & TPOT 基准测试结果 ===")
+        lines.append(f"模型: {model}")
+        lines.append(f"加速器: {accelerator}")
+        lines.append("")
+        
+        data = []
+        for item in results:
+            if "error" in item:
+                data.append([
+                    f"{item['input_length']}",
+                    f"{item['output_length']}",
+                    "错误",
+                    "错误", 
+                    "错误",
+                    "错误",
+                    "错误",
+                    "错误"
+                ])
+            else:
+                data.append([
+                    f"{item['input_length']}",
+                    f"{item['output_length']}",
+                    f"{item['ttft_ms']:.1f} ms",
+                    f"{item['tpot_ms']:.1f} ms",
+                    f"{item['total_latency_ms']:.1f} ms",
+                    f"{item['throughput_tokens_per_sec']:.1f} tokens/s",
+                    f"{item['memory_usage_gb']:.2f} GB",
+                    f"{item['utilization_percent']:.1f}%"
+                ])
+        
+        headers = ["输入长度", "输出长度", "TTFT", "TPOT", "总延迟", "吞吐量", "内存使用", "利用率"]
+        table = tabulate(data, headers=headers, tablefmt="grid")
+        lines.append(table)
+        
+        # 添加统计摘要
+        successful_results = [r for r in results if "error" not in r]
+        if successful_results:
+            lines.append("\n=== 统计摘要 ===")
+            avg_ttft = sum(r['ttft_ms'] for r in successful_results) / len(successful_results)
+            avg_tpot = sum(r['tpot_ms'] for r in successful_results) / len(successful_results)
+            avg_throughput = sum(r['throughput_tokens_per_sec'] for r in successful_results) / len(successful_results)
+            
+            lines.append(f"平均 TTFT: {avg_ttft:.1f} ms")
+            lines.append(f"平均 TPOT: {avg_tpot:.1f} ms")  
+            lines.append(f"平均吞吐量: {avg_throughput:.1f} tokens/s")
+        
+        return "\n".join(lines)
 
 
 def main():
