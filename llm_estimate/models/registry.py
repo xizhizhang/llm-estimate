@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Type
 from .base import BaseModel, ModelSpecs
 from .llama import LlamaModel
 from .qwen import QwenModel
+from .qwen3_moe import Qwen3MoEModel
 
 
 class ModelRegistry:
@@ -25,6 +26,7 @@ class ModelRegistry:
         
         # 注册Qwen系列模型
         self.register("qwen3", QwenModel)
+        self.register("qwen3-moe", Qwen3MoEModel)
         
         # 添加模型规格数据
         self._load_model_specs()
@@ -77,6 +79,23 @@ class ModelRegistry:
                 vocab_size=151936,
                 max_position_embeddings=40960,
                 model_type="qwen3"
+            ),
+        })
+
+        # Qwen3-MoE 系列
+        self._model_specs.update({
+            "qwen3-235b-a22b": ModelSpecs(
+                name="qwen3-235b-a22b",
+                parameters=235,
+                layers=94,
+                hidden_size=4096,
+                intermediate_size=12288,  # Qwen3-235B 的 FFN 中间维度
+                attention_heads=64,
+                head_dim=128,
+                num_key_value_heads=4,  # GQA
+                vocab_size=151936,
+                max_position_embeddings=40960,
+                model_type="qwen3-moe"
             ),
         })
     
