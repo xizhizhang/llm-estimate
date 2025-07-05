@@ -6,17 +6,17 @@
 
 ## 功能特性
 
-- 🚀 支持多种主流LLM模型（Llama、Qwen等）
-- 💻 统一加速器抽象（GPU、CPU、TPU、NPU等）
-- 📊 估算关键性能指标（吞吐量、延迟、内存使用）
-- 🔧 提供优化建议和瓶颈分析
+- 🚀 支持多种主流LLM模型（Llama、Qwen、MoE等）
+- 💻 统一加速器抽象（GPU、CPU、TPU、SOC等）
+- 📊 估算关键性能指标（TTFT、TPOT、吞吐量、内存使用）
+- 🔧 操作级别详细分析和瓶颈识别
 - 📋 支持多种输出格式（表格、JSON、CSV）
 - 🖥️ 命令行工具和Python API
 - ⚡ 专注算力（FLOPS）和内存带宽核心指标
 
 ## 核心概念
 
-本项目将GPU、CPU、TPU等计算设备统一抽象为**加速器**，不再区分设备类型，只关注：
+本项目将GPU、CPU、TPU、SOC等计算设备统一抽象为**加速器**，不再区分设备类型，只关注：
 - **算力**: 计算能力（TFLOPS）
 - **内存带宽**: 存储带宽（GB/s）
 - **内存容量**: 可用内存（GB）
@@ -82,8 +82,14 @@ llm-estimate --help
 # 估算Llama-2-7B在RTX-4090上的性能
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
 
-# 指定精度和批次大小
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4
+# 指定精度、批次大小和序列长度
+python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4 --input-length 1024 --output-length 256
+
+# 详细分析，包含操作级别分解
+python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --verbose
+
+# 显示详细的操作分解
+python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --show-ops --top-ops 20 --detailed
 
 # 列出支持的模型
 python3 llm_estimate.py list-models
@@ -95,11 +101,8 @@ python3 llm_estimate.py list-accelerators
 python3 llm_estimate.py list-accelerators --type gpu
 python3 llm_estimate.py list-accelerators --type cpu
 
-# 比较多个模型
-python3 llm_estimate.py compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
-
-# 基准测试加速器
-python3 llm_estimate.py benchmark --accelerators rtx-4090 --model llama-2-7b
+# 跨不同序列长度的性能基准测试
+python3 llm_estimate.py benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024,2048,4096 --output-lengths 128,256,512
 
 # 交互式模式
 python3 llm_estimate.py interactive
@@ -122,7 +125,8 @@ result = estimator.estimate(
 
 print(f"吞吐量: {result['throughput_tokens_per_sec']:.1f} tokens/s")
 print(f"内存使用: {result['memory_usage_gb']:.2f} GB")
-print(f"延迟: {result['latency_ms']:.1f} ms")
+print(f"首Token时间: {result['ttft_ms']:.1f} ms")
+print(f"每Token时间: {result['tpot_ms']:.1f} ms")
 print(f"瓶颈: {result['bottleneck']}")
 
 # 直接创建加速器
@@ -150,23 +154,51 @@ llm-estimate/
 
 ## 支持的模型
 
-- **Llama系列**: Llama-2-7B, Llama-3
-- **Qwen系列**: Qwen-7B, Qwen-14B, Qwen-72B
-- 更多模型持续添加中...
+### Llama系列
+- **llama-2-7b**: 7B参数，32层，4K上下文
+- **llama-3.1-8b**: 8B参数，32层，128K上下文，GQA架构
+
+### Qwen系列
+- **qwen3-8b**: 8B参数，36层，40K上下文，GQA架构
+
+### 混合专家模型（MoE）
+- **qwen3-235b-a22b**: 235B总参数，94层，128个专家，每token激活8个专家
 
 ## 支持的加速器
 
 ### GPU加速器
-- **NVIDIA**: RTX-4090, RTX-4080, RTX-3090, A100, H100, V100
-- **AMD**: (规划中)
+- **RTX-4090**: 660 TFLOPS，1008 GB/s，24 GB显存
+- **H100-80GB**: 1979 TFLOPS，2039 GB/s，80 GB显存
 
 ### CPU加速器
-- **Intel**: i9-13900K, i7-13700K
-- **AMD**: Ryzen-9-7950X
+- **i9-13900K**: 1.2 TFLOPS，77 GB/s，最大128 GB内存
+- **Ryzen-9-7950X**: 1.1 TFLOPS，83 GB/s，最大128 GB内存
 
-### 专用加速器
-- **Apple**: M1-Ultra, M2-Ultra
-- **Google**: TPU-v4
+### Apple Silicon
+- **M2-Ultra**: 27.2 TFLOPS，800 GB/s，192 GB统一内存
+
+### Google TPU
+- **TPU-v4**: 275 TFLOPS，1200 GB/s，32 GB内存
+
+## 核心功能
+
+### 操作级别分析
+- 详细分解Transformer操作（注意力、FFN、归一化等）
+- 每个操作的FLOPS和内存带宽分析
+- 瓶颈识别和优化建议
+
+### 性能指标
+- **TTFT (Time To First Token)**: 首Token生成时间
+- **TPOT (Time Per Output Token)**: 后续Token平均生成时间
+- **吞吐量**: 每秒处理的总Token数
+- **内存使用**: 模型和激活值内存需求
+
+### 高级CLI选项
+- `--verbose`: 启用详细的操作级别分析
+- `--show-ops`: 显示操作分解
+- `--top-ops N`: 显示前N个最耗时的操作
+- `--detailed`: 显示包括瓶颈的综合分析
+- `--format`: 以表格、JSON或CSV格式输出
 
 ## 开发
 
@@ -211,6 +243,31 @@ mypy llm_estimate/
     price_usd=5000,
     power_consumption_w=400
 )
+```
+
+## 输出示例
+
+```
+=== 性能估算 ===
+模型: llama-2-7b
+加速器: RTX-4090
+精度: fp16
+批次大小: 1
+输入长度: 1024
+输出长度: 256
+
+=== 核心指标 ===
+• TTFT (首Token时间): 45.2 ms
+• TPOT (每Token时间): 18.7 ms
+• 总延迟: 4.83 s
+• 吞吐量: 265 tokens/s
+• 内存使用: 14.8 GB
+• 瓶颈: memory_bandwidth (89% 利用率)
+
+=== 性能分析 ===
+• 计算利用率: 72%
+• 内存带宽利用率: 89%
+• 内存容量利用率: 62%
 ```
 
 ## 许可证
