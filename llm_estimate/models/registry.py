@@ -95,7 +95,11 @@ class ModelRegistry:
                 num_key_value_heads=4,  # GQA
                 vocab_size=151936,
                 max_position_embeddings=40960,
-                model_type="qwen3-moe"
+                model_type="qwen3-moe",
+                num_experts=128,
+                experts_per_token=8,
+                expert_capacity=None,
+                moe_layers=None
             ),
         })
     

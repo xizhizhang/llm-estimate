@@ -28,6 +28,11 @@ class ModelSpecs:
     vocab_size: int  # 词汇表大小
     max_position_embeddings: int  # 最大位置编码
     model_type: str  # 模型类型
+    # MoE related parameters
+    num_experts: Optional[int] = None  # 专家数量
+    experts_per_token: Optional[int] = None  # 每个token激活的专家数
+    expert_capacity: Optional[int] = None  # 专家容量限制
+    moe_layers: Optional[List[int]] = None  # MoE层位置，如果None则所有FFN层都是MoE
 
 
 class ModelConfig(PydanticModel):

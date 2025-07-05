@@ -23,11 +23,11 @@ class Qwen3MoEModel(BaseModel):
         """
         super().__init__(specs, config, **kwargs)
         
-        # MoE特有参数
-        self.num_experts = kwargs.get('num_experts', 64)  # 专家数量
-        self.experts_per_token = kwargs.get('experts_per_token', 4)  # 每个token激活的专家数
-        self.expert_capacity = kwargs.get('expert_capacity', None)  # 专家容量限制
-        self.moe_layers = kwargs.get('moe_layers', None)  # MoE层位置，如果None则所有FFN层都是MoE
+        # MoE特有参数 - 优先从specs中读取，如果没有则从kwargs中获取默认值
+        self.num_experts = specs.num_experts if specs.num_experts is not None else kwargs.get('num_experts', 64)
+        self.experts_per_token = specs.experts_per_token if specs.experts_per_token is not None else kwargs.get('experts_per_token', 4)
+        self.expert_capacity = specs.expert_capacity if specs.expert_capacity is not None else kwargs.get('expert_capacity', None)
+        self.moe_layers = specs.moe_layers if specs.moe_layers is not None else kwargs.get('moe_layers', None)
         
         # 计算MoE层数，如果未指定则假设所有FFN层都是MoE
         if self.moe_layers is None:
@@ -243,14 +243,23 @@ class Qwen3MoEModel(BaseModel):
                 op_name=f"layer_{layer_idx}_router",
                 flops=2 * batch_size * current_seq_len * hidden_size * num_experts,  # 路由器计算
                 memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                             hidden_size * num_experts + 
-                             batch_size * current_seq_len * num_experts) * 2,
+                             batch_size * current_seq_len * num_experts) * 2,  # 只计算激活值内存
                 is_gemm=True,
                 m=batch_size * current_seq_len,
                 n=num_experts,
                 k=hidden_size
             )
             moe_ops.append(router_op)
+            
+            # 1.1 路由器额外开销 - 专家选择和token分发的计算开销
+            # 这包括top-k选择、负载均衡、token重排序等
+            router_overhead = OpProfile(
+                op_type=OpType.ELEMENTWISE_ADD,
+                op_name=f"layer_{layer_idx}_router_overhead",
+                flops=batch_size * current_seq_len * num_experts * 2,  # 额外的路由开销
+                memory_bytes=batch_size * current_seq_len * num_experts * 2 * 2  # 路由表和索引
+            )
+            moe_ops.append(router_overhead)
             
             # 2. 专家路由Softmax
             # 在decode模式下，只需要为一个token做softmax
@@ -262,63 +271,59 @@ class Qwen3MoEModel(BaseModel):
             )
             moe_ops.append(router_softmax)
             
-            # 3. 专家Gate投影 (只计算激活的专家)
-            # 在decode模式下，只需要为一个token计算专家投影
-            expert_gate_proj = OpProfile(
-                op_type=OpType.GEMM_FFN_GATE,
-                op_name=f"layer_{layer_idx}_expert_gate",
-                flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size * (experts_per_token / num_experts),
-                memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                             hidden_size * intermediate_size * (experts_per_token / num_experts) + 
-                             batch_size * current_seq_len * intermediate_size * (experts_per_token / num_experts)) * 2,
-                is_gemm=True,
-                m=batch_size * current_seq_len,
-                n=intermediate_size,
-                k=hidden_size
-            )
-            moe_ops.append(expert_gate_proj)
-            
-            # 4. 专家Up投影 (只计算激活的专家)
-            # 在decode模式下，只需要为一个token计算专家投影
-            expert_up_proj = OpProfile(
-                op_type=OpType.GEMM_FFN_UP,
-                op_name=f"layer_{layer_idx}_expert_up",
-                flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size * (experts_per_token / num_experts),
-                memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                             hidden_size * intermediate_size * (experts_per_token / num_experts) + 
-                             batch_size * current_seq_len * intermediate_size * (experts_per_token / num_experts)) * 2,
-                is_gemm=True,
-                m=batch_size * current_seq_len,
-                n=intermediate_size,
-                k=hidden_size
-            )
-            moe_ops.append(expert_up_proj)
-            
-            # 5. SwiGLU激活
-            # 在decode模式下，只需要为一个token计算激活
-            activation_op = OpProfile(
-                op_type=OpType.ELEMENTWISE_ACTIVATION,
-                op_name=f"layer_{layer_idx}_expert_swiglu",
-                flops=batch_size * current_seq_len * intermediate_size * (experts_per_token / num_experts),
-                memory_bytes=batch_size * current_seq_len * intermediate_size * (experts_per_token / num_experts) * 2 * 2  # gate * up
-            )
-            moe_ops.append(activation_op)
-            
-            # 6. 专家Down投影 (只计算激活的专家)
-            # 在decode模式下，只需要为一个token计算专家投影
-            expert_down_proj = OpProfile(
-                op_type=OpType.GEMM_FFN_DOWN,
-                op_name=f"layer_{layer_idx}_expert_down",
-                flops=2 * batch_size * current_seq_len * intermediate_size * hidden_size * (experts_per_token / num_experts),
-                memory_bytes=(batch_size * current_seq_len * intermediate_size * (experts_per_token / num_experts) + 
-                             intermediate_size * hidden_size * (experts_per_token / num_experts) + 
-                             batch_size * current_seq_len * hidden_size) * 2,
-                is_gemm=True,
-                m=batch_size * current_seq_len,
-                n=hidden_size,
-                k=intermediate_size
-            )
-            moe_ops.append(expert_down_proj)
+            # 3-6. 为每个激活的专家生成独立的操作
+            # 每个token激活experts_per_token个专家，每个专家都有独立的gate, up, down投影
+            for expert_idx in range(experts_per_token):
+                # 3. 专家Gate投影
+                expert_gate_proj = OpProfile(
+                    op_type=OpType.GEMM_FFN_GATE,
+                    op_name=f"layer_{layer_idx}_expert_{expert_idx}_gate",
+                    flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
+                    memory_bytes=(batch_size * current_seq_len * hidden_size + 
+                                 batch_size * current_seq_len * intermediate_size) * 2,  # 只计算激活值内存
+                    is_gemm=True,
+                    m=batch_size * current_seq_len,
+                    n=intermediate_size,
+                    k=hidden_size
+                )
+                moe_ops.append(expert_gate_proj)
+                
+                # 4. 专家Up投影
+                expert_up_proj = OpProfile(
+                    op_type=OpType.GEMM_FFN_UP,
+                    op_name=f"layer_{layer_idx}_expert_{expert_idx}_up",
+                    flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
+                    memory_bytes=(batch_size * current_seq_len * hidden_size + 
+                                 batch_size * current_seq_len * intermediate_size) * 2,  # 只计算激活值内存
+                    is_gemm=True,
+                    m=batch_size * current_seq_len,
+                    n=intermediate_size,
+                    k=hidden_size
+                )
+                moe_ops.append(expert_up_proj)
+                
+                # 5. SwiGLU激活（每个专家独立）
+                activation_op = OpProfile(
+                    op_type=OpType.ELEMENTWISE_ACTIVATION,
+                    op_name=f"layer_{layer_idx}_expert_{expert_idx}_swiglu",
+                    flops=batch_size * current_seq_len * intermediate_size,
+                    memory_bytes=batch_size * current_seq_len * intermediate_size * 2 * 2  # gate * up
+                )
+                moe_ops.append(activation_op)
+                
+                # 6. 专家Down投影
+                expert_down_proj = OpProfile(
+                    op_type=OpType.GEMM_FFN_DOWN,
+                    op_name=f"layer_{layer_idx}_expert_{expert_idx}_down",
+                    flops=2 * batch_size * current_seq_len * intermediate_size * hidden_size,
+                    memory_bytes=(batch_size * current_seq_len * intermediate_size + 
+                                 batch_size * current_seq_len * hidden_size) * 2,  # 只计算激活值内存
+                    is_gemm=True,
+                    m=batch_size * current_seq_len,
+                    n=hidden_size,
+                    k=intermediate_size
+                )
+                moe_ops.append(expert_down_proj)
             
             # 7. 专家输出加权合并
             # 在decode模式下，只需要为一个token合并专家输出
@@ -329,6 +334,16 @@ class Qwen3MoEModel(BaseModel):
                 memory_bytes=batch_size * current_seq_len * hidden_size * experts_per_token * 2  # 读取多个专家输出
             )
             moe_ops.append(expert_combine)
+            
+            # 7.1 专家输出同步开销 - 多专家并行计算后的结果同步
+            # 在实际GPU实现中，不同专家的输出需要同步和重排序
+            expert_sync = OpProfile(
+                op_type=OpType.MEMORY_COPY,
+                op_name=f"layer_{layer_idx}_expert_sync",
+                flops=batch_size * current_seq_len * hidden_size * 0.5,  # 同步开销
+                memory_bytes=batch_size * current_seq_len * hidden_size * 2  # 临时缓冲区
+            )
+            moe_ops.append(expert_sync)
             
             # 8. RMSNorm层归一化 (Qwen3特有)
             # 在decode模式下，只需要为一个token做归一化
