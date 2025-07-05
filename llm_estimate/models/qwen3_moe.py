@@ -5,7 +5,7 @@ Qwen3-MoE模型实现
 参考 Qwen3-MoE 官方实现和优化指南修正 FLOPS 和内存计算。
 """
 
-from typing import Dict
+from typing import Dict, List
 from .base import BaseModel, ModelSpecs, ModelConfig
 
 
@@ -40,6 +40,281 @@ class Qwen3MoEModel(BaseModel):
         
         # 路由器开销因子
         self.router_overhead_factor = kwargs.get('router_overhead_factor', 0.1)
+    
+    def decompose_to_ops(self) -> List['LayerProfile']:
+        """分解Qwen3-MoE系列模型为具体操作"""
+        from ..estimator.op_level_estimator import LayerProfile, OpProfile, OpType
+        
+        layer_profiles = []
+        
+        batch_size = self.config.batch_size
+        seq_len = self.config.context_length
+        hidden_size = self.specs.hidden_size
+        intermediate_size = self.specs.intermediate_size
+        num_heads = self.specs.attention_heads
+        num_kv_heads = self.specs.num_key_value_heads
+        head_dim = self.specs.head_dim
+        vocab_size = self.specs.vocab_size
+        
+        # MoE参数
+        num_experts = self.num_experts
+        experts_per_token = self.experts_per_token
+        
+        # 为每一层生成操作分解
+        for layer_idx in range(self.specs.layers):
+            
+            # === Attention层操作 (与Qwen3相同) ===
+            attention_ops = []
+            
+            # 1. Q/K/V投影 - 3个GEMM操作 (支持GQA)
+            # Q投影: [batch*seq, hidden] @ [hidden, hidden] = [batch*seq, hidden]
+            q_proj = OpProfile(
+                op_type=OpType.GEMM_QKV_PROJ,
+                op_name=f"layer_{layer_idx}_q_proj",
+                flops=2 * batch_size * seq_len * hidden_size * hidden_size,
+                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * hidden_size + 
+                             batch_size * seq_len * hidden_size) * 2,  # bf16
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=hidden_size,
+                k=hidden_size
+            )
+            attention_ops.append(q_proj)
+            
+            # K投影: [batch*seq, hidden] @ [hidden, kv_hidden] = [batch*seq, kv_hidden]
+            kv_hidden = num_kv_heads * head_dim
+            k_proj = OpProfile(
+                op_type=OpType.GEMM_QKV_PROJ,
+                op_name=f"layer_{layer_idx}_k_proj",
+                flops=2 * batch_size * seq_len * hidden_size * kv_hidden,
+                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * kv_hidden + 
+                             batch_size * seq_len * kv_hidden) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=kv_hidden,
+                k=hidden_size
+            )
+            attention_ops.append(k_proj)
+            
+            # V投影: 同K投影
+            v_proj = OpProfile(
+                op_type=OpType.GEMM_QKV_PROJ,
+                op_name=f"layer_{layer_idx}_v_proj",
+                flops=2 * batch_size * seq_len * hidden_size * kv_hidden,
+                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * kv_hidden + 
+                             batch_size * seq_len * kv_hidden) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=kv_hidden,
+                k=hidden_size
+            )
+            attention_ops.append(v_proj)
+            
+            # 2. RoPE位置编码 - 元素级操作
+            rope_op = OpProfile(
+                op_type=OpType.ELEMENTWISE_ROPE,
+                op_name=f"layer_{layer_idx}_rope",
+                flops=6 * batch_size * seq_len * hidden_size,  # RoPE rotation computation
+                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2  # Q和K的RoPE应用
+            )
+            attention_ops.append(rope_op)
+            
+            # 3. 注意力计算 - Q@K^T
+            attention_qk = OpProfile(
+                op_type=OpType.GEMM_ATTENTION,
+                op_name=f"layer_{layer_idx}_attention_qk",
+                flops=2 * batch_size * num_heads * seq_len * seq_len * head_dim,
+                memory_bytes=(batch_size * num_heads * seq_len * head_dim * 2 + 
+                             batch_size * num_heads * seq_len * seq_len) * 2,
+                is_gemm=True,
+                m=seq_len,
+                n=seq_len,
+                k=head_dim
+            )
+            attention_ops.append(attention_qk)
+            
+            # 4. Softmax - 元素级操作
+            softmax_op = OpProfile(
+                op_type=OpType.ELEMENTWISE_SOFTMAX,
+                op_name=f"layer_{layer_idx}_softmax",
+                flops=3 * batch_size * num_heads * seq_len * seq_len,  # exp + sum + div
+                memory_bytes=batch_size * num_heads * seq_len * seq_len * 2 * 2  # 读写两次
+            )
+            attention_ops.append(softmax_op)
+            
+            # 5. 注意力输出 - Attention@V  
+            attention_v = OpProfile(
+                op_type=OpType.GEMM_ATTENTION,
+                op_name=f"layer_{layer_idx}_attention_v",
+                flops=2 * batch_size * num_heads * seq_len * seq_len * head_dim,
+                memory_bytes=(batch_size * num_heads * seq_len * seq_len + 
+                             batch_size * num_heads * seq_len * head_dim + 
+                             batch_size * num_heads * seq_len * head_dim) * 2,
+                is_gemm=True,
+                m=seq_len,
+                n=head_dim,
+                k=seq_len
+            )
+            attention_ops.append(attention_v)
+            
+            # 6. 输出投影
+            output_proj = OpProfile(
+                op_type=OpType.GEMM_OUTPUT_PROJ,
+                op_name=f"layer_{layer_idx}_output_proj",
+                flops=2 * batch_size * seq_len * hidden_size * hidden_size,
+                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * hidden_size + 
+                             batch_size * seq_len * hidden_size) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=hidden_size,
+                k=hidden_size
+            )
+            attention_ops.append(output_proj)
+            
+            # 7. RMSNorm层归一化 (Qwen3特有)
+            rms_norm_1 = OpProfile(
+                op_type=OpType.ELEMENTWISE_LAYER_NORM,
+                op_name=f"layer_{layer_idx}_rms_norm_1",
+                flops=2 * batch_size * seq_len * hidden_size,  # RMSNorm: sqrt(mean(x^2)) + scale
+                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2  # 读写两次
+            )
+            attention_ops.append(rms_norm_1)
+            
+            attention_layer = LayerProfile(
+                layer_idx=layer_idx,
+                layer_type="attention",
+                ops=attention_ops
+            )
+            layer_profiles.append(attention_layer)
+            
+            # === MoE FFN层操作 ===
+            moe_ops = []
+            
+            # 1. 路由器计算 - 选择专家
+            router_op = OpProfile(
+                op_type=OpType.GEMM_FFN_GATE,
+                op_name=f"layer_{layer_idx}_router",
+                flops=2 * batch_size * seq_len * hidden_size * num_experts,  # 路由器计算
+                memory_bytes=(batch_size * seq_len * hidden_size + 
+                             hidden_size * num_experts + 
+                             batch_size * seq_len * num_experts) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=num_experts,
+                k=hidden_size
+            )
+            moe_ops.append(router_op)
+            
+            # 2. 专家路由Softmax
+            router_softmax = OpProfile(
+                op_type=OpType.ELEMENTWISE_SOFTMAX,
+                op_name=f"layer_{layer_idx}_router_softmax",
+                flops=3 * batch_size * seq_len * num_experts,  # exp + sum + div
+                memory_bytes=batch_size * seq_len * num_experts * 2 * 2  # 读写两次
+            )
+            moe_ops.append(router_softmax)
+            
+            # 3. 专家Gate投影 (只计算激活的专家)
+            expert_gate_proj = OpProfile(
+                op_type=OpType.GEMM_FFN_GATE,
+                op_name=f"layer_{layer_idx}_expert_gate",
+                flops=2 * batch_size * seq_len * hidden_size * intermediate_size * (experts_per_token / num_experts),
+                memory_bytes=(batch_size * seq_len * hidden_size + 
+                             hidden_size * intermediate_size * (experts_per_token / num_experts) + 
+                             batch_size * seq_len * intermediate_size * (experts_per_token / num_experts)) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=intermediate_size,
+                k=hidden_size
+            )
+            moe_ops.append(expert_gate_proj)
+            
+            # 4. 专家Up投影 (只计算激活的专家)
+            expert_up_proj = OpProfile(
+                op_type=OpType.GEMM_FFN_UP,
+                op_name=f"layer_{layer_idx}_expert_up",
+                flops=2 * batch_size * seq_len * hidden_size * intermediate_size * (experts_per_token / num_experts),
+                memory_bytes=(batch_size * seq_len * hidden_size + 
+                             hidden_size * intermediate_size * (experts_per_token / num_experts) + 
+                             batch_size * seq_len * intermediate_size * (experts_per_token / num_experts)) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=intermediate_size,
+                k=hidden_size
+            )
+            moe_ops.append(expert_up_proj)
+            
+            # 5. SwiGLU激活
+            activation_op = OpProfile(
+                op_type=OpType.ELEMENTWISE_ACTIVATION,
+                op_name=f"layer_{layer_idx}_expert_swiglu",
+                flops=batch_size * seq_len * intermediate_size * (experts_per_token / num_experts),
+                memory_bytes=batch_size * seq_len * intermediate_size * (experts_per_token / num_experts) * 2 * 2  # gate * up
+            )
+            moe_ops.append(activation_op)
+            
+            # 6. 专家Down投影 (只计算激活的专家)
+            expert_down_proj = OpProfile(
+                op_type=OpType.GEMM_FFN_DOWN,
+                op_name=f"layer_{layer_idx}_expert_down",
+                flops=2 * batch_size * seq_len * intermediate_size * hidden_size * (experts_per_token / num_experts),
+                memory_bytes=(batch_size * seq_len * intermediate_size * (experts_per_token / num_experts) + 
+                             intermediate_size * hidden_size * (experts_per_token / num_experts) + 
+                             batch_size * seq_len * hidden_size) * 2,
+                is_gemm=True,
+                m=batch_size * seq_len,
+                n=hidden_size,
+                k=intermediate_size
+            )
+            moe_ops.append(expert_down_proj)
+            
+            # 7. 专家输出加权合并
+            expert_combine = OpProfile(
+                op_type=OpType.ELEMENTWISE_ADD,
+                op_name=f"layer_{layer_idx}_expert_combine",
+                flops=batch_size * seq_len * hidden_size * experts_per_token,  # 加权求和
+                memory_bytes=batch_size * seq_len * hidden_size * experts_per_token * 2  # 读取多个专家输出
+            )
+            moe_ops.append(expert_combine)
+            
+            # 8. RMSNorm层归一化 (Qwen3特有)
+            rms_norm_2 = OpProfile(
+                op_type=OpType.ELEMENTWISE_LAYER_NORM,
+                op_name=f"layer_{layer_idx}_rms_norm_2",
+                flops=2 * batch_size * seq_len * hidden_size,  # RMSNorm计算
+                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2
+            )
+            moe_ops.append(rms_norm_2)
+            
+            moe_layer = LayerProfile(
+                layer_idx=layer_idx,
+                layer_type="moe_ffn",
+                ops=moe_ops
+            )
+            layer_profiles.append(moe_layer)
+        
+        # === 添加LM Head ===
+        lm_head_op = OpProfile(
+            op_type=OpType.GEMM_LM_HEAD,
+            op_name="lm_head",
+            flops=2 * batch_size * seq_len * hidden_size * vocab_size,
+            memory_bytes=(batch_size * seq_len * hidden_size + 
+                         hidden_size * vocab_size + 
+                         batch_size * seq_len * vocab_size) * 2,
+            is_gemm=True,
+            m=batch_size * seq_len,
+            n=vocab_size,
+            k=hidden_size
+        )
+        
+        lm_head_layer = LayerProfile(
+            layer_idx=-1,
+            layer_type="lm_head",
+            ops=[lm_head_op]
+        )
+        layer_profiles.append(lm_head_layer)
+        
+        return layer_profiles
     
     def calculate_memory_usage(self, precision: str = "fp16") -> Dict[str, float]:
         """

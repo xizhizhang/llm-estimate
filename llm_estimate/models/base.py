@@ -6,8 +6,12 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pydantic import BaseModel as PydanticModel, Field
+
+# 避免循环导入
+if TYPE_CHECKING:
+    from ..estimator.op_level_estimator import LayerProfile
 
 
 @dataclass
@@ -78,6 +82,16 @@ class BaseModel(ABC):
         
         Returns:
             每个token的FLOPS数
+        """
+        pass
+    
+    @abstractmethod
+    def decompose_to_ops(self) -> List['LayerProfile']:
+        """
+        将模型分解为具体的操作
+        
+        Returns:
+            包含所有层操作分解的列表
         """
         pass
     
