@@ -24,6 +24,7 @@ class OpType(Enum):
     GEMM_FFN_UP = "gemm_ffn_up"              # FFN上投影
     GEMM_FFN_DOWN = "gemm_ffn_down"          # FFN下投影
     GEMM_LM_HEAD = "gemm_lm_head"            # 语言模型头
+    GEMM_ROUTER = "gemm_router"              # MoE路由器
     
     # 元素级操作
     ELEMENTWISE_SOFTMAX = "elementwise_softmax"     # Softmax
@@ -398,7 +399,7 @@ class OpLevelEstimator:
             suggestions.append("  - 考虑减少激活值的内存占用")
         
         # 基于操作类型的建议
-        gemm_types = ["gemm_qkv_projection", "gemm_attention", "gemm_ffn_gate", "gemm_ffn_up", "gemm_ffn_down"]
+        gemm_types = ["gemm_qkv_projection", "gemm_attention", "gemm_ffn_gate", "gemm_ffn_up", "gemm_ffn_down", "gemm_router"]
         total_gemm_time = sum(op_stats.get(op_type, {}).get("total_time_ms", 0) for op_type in gemm_types)
         total_time = sum(stats["total_time_ms"] for stats in op_stats.values())
         

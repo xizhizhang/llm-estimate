@@ -29,6 +29,7 @@ class ModelSpecs:
     max_position_embeddings: int  # 最大位置编码
     model_type: str  # 模型类型
     # MoE related parameters
+    moe_intermediate_size: Optional[int] = None  # MoE 中间维度
     num_experts: Optional[int] = None  # 专家数量
     experts_per_token: Optional[int] = None  # 每个token激活的专家数
     expert_capacity: Optional[int] = None  # 专家容量限制

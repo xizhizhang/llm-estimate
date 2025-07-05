@@ -51,6 +51,7 @@ class Qwen3MoEModel(BaseModel):
         seq_len = self.config.context_length
         hidden_size = self.specs.hidden_size
         intermediate_size = self.specs.intermediate_size
+        moe_intermediate_size = self.specs.moe_intermediate_size
         num_heads = self.specs.attention_heads
         num_kv_heads = self.specs.num_key_value_heads
         head_dim = self.specs.head_dim
@@ -239,11 +240,11 @@ class Qwen3MoEModel(BaseModel):
             # 1. 路由器计算 - 选择专家
             # 在decode模式下，只需要为一个token计算路由
             router_op = OpProfile(
-                op_type=OpType.GEMM_FFN_GATE,
+                op_type=OpType.GEMM_ROUTER,
                 op_name=f"layer_{layer_idx}_router",
                 flops=2 * batch_size * current_seq_len * hidden_size * num_experts,  # 路由器计算
-                memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                             batch_size * current_seq_len * num_experts) * 2,  # 只计算激活值内存
+                memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * num_experts + 
+                             batch_size * current_seq_len * num_experts) * 2,  # 包含权重参数内存
                 is_gemm=True,
                 m=batch_size * current_seq_len,
                 n=num_experts,
@@ -278,12 +279,12 @@ class Qwen3MoEModel(BaseModel):
                 expert_gate_proj = OpProfile(
                     op_type=OpType.GEMM_FFN_GATE,
                     op_name=f"layer_{layer_idx}_expert_{expert_idx}_gate",
-                    flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
-                    memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                                 batch_size * current_seq_len * intermediate_size) * 2,  # 只计算激活值内存
+                    flops=2 * batch_size * current_seq_len * hidden_size * moe_intermediate_size,
+                    memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * moe_intermediate_size + 
+                                 batch_size * current_seq_len * moe_intermediate_size) * 2,  # 包含权重参数内存
                     is_gemm=True,
                     m=batch_size * current_seq_len,
-                    n=intermediate_size,
+                    n=moe_intermediate_size,
                     k=hidden_size
                 )
                 moe_ops.append(expert_gate_proj)
@@ -292,12 +293,12 @@ class Qwen3MoEModel(BaseModel):
                 expert_up_proj = OpProfile(
                     op_type=OpType.GEMM_FFN_UP,
                     op_name=f"layer_{layer_idx}_expert_{expert_idx}_up",
-                    flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
-                    memory_bytes=(batch_size * current_seq_len * hidden_size + 
-                                 batch_size * current_seq_len * intermediate_size) * 2,  # 只计算激活值内存
+                    flops=2 * batch_size * current_seq_len * hidden_size * moe_intermediate_size,
+                    memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * moe_intermediate_size + 
+                                 batch_size * current_seq_len * moe_intermediate_size) * 2,  # 包含权重参数内存
                     is_gemm=True,
                     m=batch_size * current_seq_len,
-                    n=intermediate_size,
+                    n=moe_intermediate_size,
                     k=hidden_size
                 )
                 moe_ops.append(expert_up_proj)
@@ -306,8 +307,8 @@ class Qwen3MoEModel(BaseModel):
                 activation_op = OpProfile(
                     op_type=OpType.ELEMENTWISE_ACTIVATION,
                     op_name=f"layer_{layer_idx}_expert_{expert_idx}_swiglu",
-                    flops=batch_size * current_seq_len * intermediate_size,
-                    memory_bytes=batch_size * current_seq_len * intermediate_size * 2 * 2  # gate * up
+                    flops=batch_size * current_seq_len * moe_intermediate_size,
+                    memory_bytes=batch_size * current_seq_len * moe_intermediate_size * 2 * 2  # gate * up
                 )
                 moe_ops.append(activation_op)
                 
@@ -315,13 +316,13 @@ class Qwen3MoEModel(BaseModel):
                 expert_down_proj = OpProfile(
                     op_type=OpType.GEMM_FFN_DOWN,
                     op_name=f"layer_{layer_idx}_expert_{expert_idx}_down",
-                    flops=2 * batch_size * current_seq_len * intermediate_size * hidden_size,
-                    memory_bytes=(batch_size * current_seq_len * intermediate_size + 
-                                 batch_size * current_seq_len * hidden_size) * 2,  # 只计算激活值内存
+                    flops=2 * batch_size * current_seq_len * moe_intermediate_size * hidden_size,
+                    memory_bytes=(batch_size * current_seq_len * moe_intermediate_size + moe_intermediate_size * hidden_size + 
+                                 batch_size * current_seq_len * hidden_size) * 2,  # 包含权重参数内存
                     is_gemm=True,
                     m=batch_size * current_seq_len,
                     n=hidden_size,
-                    k=intermediate_size
+                    k=moe_intermediate_size
                 )
                 moe_ops.append(expert_down_proj)
             

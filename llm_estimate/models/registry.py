@@ -90,6 +90,7 @@ class ModelRegistry:
                 layers=94,
                 hidden_size=4096,
                 intermediate_size=12288,  # Qwen3-235B 的 FFN 中间维度
+                moe_intermediate_size=1536,  # MoE 中间维度
                 attention_heads=64,
                 head_dim=128,
                 num_key_value_heads=4,  # GQA
