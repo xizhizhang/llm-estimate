@@ -82,9 +82,6 @@ llm-estimate --help
 # Estimate Llama-2-7B performance on RTX-4090
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
 
-# Use multiple accelerators
-python3 llm_estimate.py estimate --model llama-2-7b --accelerators rtx-4090,a100-40gb
-
 # Specify precision and batch size
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4
 
@@ -101,8 +98,8 @@ python3 llm_estimate.py list-accelerators --type cpu
 # Compare multiple models
 python3 llm_estimate.py compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
 
-# Benchmark multiple accelerators
-python3 llm_estimate.py benchmark --accelerators rtx-4090,a100-40gb,h100 --model llama-2-7b
+# Benchmark accelerators
+python3 llm_estimate.py benchmark --accelerators rtx-4090 --model llama-2-7b
 
 # Interactive mode
 python3 llm_estimate.py interactive
@@ -121,13 +118,6 @@ result = estimator.estimate(
     model_name="llama-2-7b",
     hardware_config={"accelerator": "rtx-4090"},
     model_config={"batch_size": 1, "precision": "fp16"}
-)
-
-# Multi-accelerator estimation
-result = estimator.estimate(
-    model_name="llama-2-7b",
-    hardware_config={"accelerators": ["rtx-4090", "a100-40gb"]},
-    model_config={"batch_size": 4, "precision": "fp16"}
 )
 
 print(f"Throughput: {result['throughput_tokens_per_sec']:.1f} tokens/s")

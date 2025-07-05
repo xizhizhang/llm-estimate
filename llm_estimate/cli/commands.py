@@ -30,14 +30,13 @@ def cli():
 @cli.command()
 @click.option("--model", "-m", required=True, help="模型名称")
 @click.option("--accelerator", "-a", help="加速器型号 (如: rtx-4090, a100-40gb, i9-13900k)")
-@click.option("--accelerators", help="多个加速器，逗号分隔 (如: rtx-4090,a100-40gb)")
 @click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
 @click.option("--context-length", "-l", type=int, help="上下文长度")
 @click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
 @click.option("--output", "-o", type=click.Path(), help="输出文件路径")
 @click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
 @click.option("--verbose", "-v", is_flag=True, help="详细输出")
-def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str],
+def estimate(model: str, accelerator: Optional[str],
             batch_size: int, context_length: Optional[int], precision: str,
             output: Optional[str], format: str, verbose: bool):
     """估算模型性能（基于操作级别的详细分析）"""
@@ -52,11 +51,8 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
         # 使用加速器参数
         if accelerator:
             hardware_config["accelerator"] = accelerator
-        elif accelerators:
-            acc_list = [acc.strip() for acc in accelerators.split(",")]
-            hardware_config["accelerators"] = acc_list
         else:
-            raise click.BadParameter("必须指定 --accelerator 或 --accelerators 参数")
+            raise click.BadParameter("必须指定 --accelerator 参数")
             
         # 构建模型配置
         model_config = {
@@ -127,7 +123,6 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
 @cli.command("estimate-ops")
 @click.option("--model", "-m", required=True, help="模型名称")
 @click.option("--accelerator", "-a", help="加速器型号 (如: rtx-4090, a100-40gb, i9-13900k)")
-@click.option("--accelerators", help="多个加速器，逗号分隔 (如: rtx-4090,a100-40gb)")
 @click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
 @click.option("--context-length", "-l", type=int, help="上下文长度")
 @click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
@@ -136,7 +131,7 @@ def estimate(model: str, accelerator: Optional[str], accelerators: Optional[str]
 @click.option("--show-ops", is_flag=True, help="显示详细的操作分解")
 @click.option("--top-ops", type=int, default=10, help="显示前N个最耗时的操作")
 @click.option("--detailed", is_flag=True, help="显示完整的详细分析")
-def estimate_ops(model: str, accelerator: Optional[str], accelerators: Optional[str],
+def estimate_ops(model: str, accelerator: Optional[str],
                 batch_size: int, context_length: Optional[int], precision: str,
                 output: Optional[str], format: str, show_ops: bool, top_ops: int, detailed: bool):
     """
@@ -156,11 +151,8 @@ def estimate_ops(model: str, accelerator: Optional[str], accelerators: Optional[
         # 使用加速器参数
         if accelerator:
             hardware_config["accelerator"] = accelerator
-        elif accelerators:
-            acc_list = [acc.strip() for acc in accelerators.split(",")]
-            hardware_config["accelerators"] = acc_list
         else:
-            raise click.BadParameter("必须指定 --accelerator 或 --accelerators 参数")
+            raise click.BadParameter("必须指定 --accelerator 参数")
             
         # 构建模型配置
         model_config = {
@@ -447,7 +439,6 @@ def show_interactive_help():
   
 示例:
   estimate --model llama-2-7b --accelerator rtx-4090
-  estimate --model qwen-7b --accelerators rtx-4090,a100-40gb
   benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024 --output-lengths 128,256
   """
     click.echo(help_text)

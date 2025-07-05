@@ -47,8 +47,8 @@ class PerformanceEstimator:
         
         Args:
             model_name: 模型名称
-            hardware_config: 硬件配置，支持单加速器或多加速器
-                格式: {"accelerator": "rtx-4090"} 或 {"accelerators": ["rtx-4090", "a100-40gb"]}
+            hardware_config: 硬件配置，支持单加速器
+                格式: {"accelerator": "rtx-4090"}
             model_config: 模型配置
             
         Returns:
@@ -272,9 +272,7 @@ class PerformanceEstimator:
         Args:
             hardware_config: 硬件配置，支持多种格式：
                 - {"accelerator": "rtx-4090"}  # 单加速器
-                - {"accelerators": ["rtx-4090", "a100-40gb"]}  # 多加速器
-                - {"gpu": "rtx-4090"}  # 兼容旧格式
-                - {"cpu": "i9-13900k"}  # 兼容旧格式
+
         """
         system_spec = SystemSpec()
         
@@ -282,22 +280,6 @@ class PerformanceEstimator:
         if "accelerator" in hardware_config:
             accelerator = create_accelerator(hardware_config["accelerator"])
             system_spec.add_accelerator(accelerator)
-        
-        # 处理多加速器配置
-        elif "accelerators" in hardware_config:
-            for acc_name in hardware_config["accelerators"]:
-                accelerator = create_accelerator(acc_name)
-                system_spec.add_accelerator(accelerator)
-        
-        # 兼容旧的GPU/CPU格式
-        else:
-            if "gpu" in hardware_config:
-                gpu = create_accelerator(hardware_config["gpu"])
-                system_spec.add_accelerator(gpu)
-            
-            if "cpu" in hardware_config:
-                cpu = create_accelerator(hardware_config["cpu"])
-                system_spec.add_accelerator(cpu)
         
         # 如果没有指定任何加速器，使用默认配置
         if not system_spec.accelerators:

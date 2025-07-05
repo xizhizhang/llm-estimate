@@ -82,9 +82,6 @@ llm-estimate --help
 # 估算Llama-2-7B在RTX-4090上的性能
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
 
-# 使用多个加速器
-python3 llm_estimate.py estimate --model llama-2-7b --accelerators rtx-4090,a100-40gb
-
 # 指定精度和批次大小
 python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4
 
@@ -101,8 +98,8 @@ python3 llm_estimate.py list-accelerators --type cpu
 # 比较多个模型
 python3 llm_estimate.py compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
 
-# 基准测试多个加速器
-python3 llm_estimate.py benchmark --accelerators rtx-4090,a100-40gb,h100 --model llama-2-7b
+# 基准测试加速器
+python3 llm_estimate.py benchmark --accelerators rtx-4090 --model llama-2-7b
 
 # 交互式模式
 python3 llm_estimate.py interactive
@@ -121,13 +118,6 @@ result = estimator.estimate(
     model_name="llama-2-7b",
     hardware_config={"accelerator": "rtx-4090"},
     model_config={"batch_size": 1, "precision": "fp16"}
-)
-
-# 多加速器估算
-result = estimator.estimate(
-    model_name="llama-2-7b",
-    hardware_config={"accelerators": ["rtx-4090", "a100-40gb"]},
-    model_config={"batch_size": 4, "precision": "fp16"}
 )
 
 print(f"吞吐量: {result['throughput_tokens_per_sec']:.1f} tokens/s")
