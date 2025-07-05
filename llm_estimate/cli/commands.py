@@ -50,6 +50,7 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
     """
     
     # 计算 TTFT: prefill阶段处理完整输入序列的时间
+    # 设置为 prefill 模式，处理整个输入序列
     prefill_result = estimator.estimate_op_level(
         model_name=model_name,
         hardware_config=hardware_config,
@@ -57,16 +58,17 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
             "batch_size": batch_size,
             "precision": precision,
             "context_length": input_length,
+            "inference_mode": "prefill",  # 明确设置为 prefill 模式
+            "use_kv_cache": True,
             "max_new_tokens": 1
         }
     )
     prefill_analysis = prefill_result["op_level_analysis"]
     
-    # TTFT: prefill阶段的单次前向传播时间
-    # 注意：prefill阶段处理整个输入序列，但各层操作是并行的，所以不需要乘以input_length
+    # TTFT: prefill阶段处理整个输入序列的时间
     ttft_ms = prefill_analysis["total_time_per_token_ms"]
     
-    # 计算 TPOT：考虑序列长度随时间的增长
+    # 计算 TPOT：decode阶段生成单个token的时间
     if output_length == 1:
         # 只有一个输出token，使用decode阶段的时间
         decode_result_single = estimator.estimate_op_level(
@@ -76,6 +78,8 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
                 "batch_size": batch_size,
                 "precision": precision,
                 "context_length": input_length,
+                "inference_mode": "decode",  # 明确设置为 decode 模式
+                "use_kv_cache": True,
                 "max_new_tokens": 1
             }
         )
@@ -91,6 +95,8 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
                 "batch_size": batch_size,
                 "precision": precision,
                 "context_length": input_length,
+                "inference_mode": "decode",  # 明确设置为 decode 模式
+                "use_kv_cache": True,
                 "max_new_tokens": 1
             }
         )
@@ -104,6 +110,8 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
                 "batch_size": batch_size,
                 "precision": precision,
                 "context_length": input_length + output_length - 1,
+                "inference_mode": "decode",  # 明确设置为 decode 模式
+                "use_kv_cache": True,
                 "max_new_tokens": 1
             }
         )
@@ -133,6 +141,8 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
             "batch_size": batch_size,
             "precision": precision,
             "context_length": input_length + output_length // 2,  # 中等序列长度
+            "inference_mode": "decode",  # 明确设置为 decode 模式
+            "use_kv_cache": True,
             "max_new_tokens": 1
         }
     )
