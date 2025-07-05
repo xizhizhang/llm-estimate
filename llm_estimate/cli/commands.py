@@ -35,11 +35,22 @@ def cli():
 @click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
 @click.option("--output", "-o", type=click.Path(), help="输出文件路径")
 @click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
-@click.option("--verbose", "-v", is_flag=True, help="详细输出")
+@click.option("--verbose", "-v", is_flag=True, help="详细输出（等同于 --show-ops --detailed --top-ops=15）")
+@click.option("--show-ops", is_flag=True, help="显示详细的操作分解")
+@click.option("--top-ops", type=int, default=10, help="显示前N个最耗时的操作")
+@click.option("--detailed", is_flag=True, help="显示完整的详细分析")
 def estimate(model: str, accelerator: Optional[str],
             batch_size: int, context_length: Optional[int], precision: str,
-            output: Optional[str], format: str, verbose: bool):
-    """估算模型性能（基于操作级别的详细分析）"""
+            output: Optional[str], format: str, verbose: bool, show_ops: bool, top_ops: int, detailed: bool):
+    """估算模型性能（基于操作级别的详细分析）
+    
+    支持多种输出级别：
+    - 默认：简化的主要性能指标
+    - --verbose：详细的操作级别分析（等同于 --show-ops --detailed --top-ops=15）
+    - --show-ops：显示详细的操作分解
+    - --detailed：显示完整的详细分析
+    - --top-ops N：显示前N个最耗时的操作
+    """
     
     try:
         # 创建估算器
@@ -68,6 +79,12 @@ def estimate(model: str, accelerator: Optional[str],
             hardware_config=hardware_config,
             model_config=model_config
         )
+        
+        # 处理verbose选项：verbose等同于--show-ops --detailed --top-ops=15
+        if verbose:
+            show_ops = True
+            detailed = True
+            top_ops = 15
         
         # 提取主要性能指标用于格式化
         op_analysis = result["op_level_analysis"]
@@ -96,13 +113,17 @@ def estimate(model: str, accelerator: Optional[str],
         
         # 格式化输出
         if format == "json":
-            formatted_result = json.dumps(simplified_result, indent=2, ensure_ascii=False)
+            # 根据是否需要详细输出来决定JSON格式
+            if show_ops or detailed:
+                formatted_result = json.dumps(result, indent=2, ensure_ascii=False)
+            else:
+                formatted_result = json.dumps(simplified_result, indent=2, ensure_ascii=False)
         elif format == "csv":
             formatted_result = format_results(simplified_result, format, verbose)
         else:  # table format
-            if verbose:
+            if show_ops or detailed:
                 # 详细输出：显示操作级别分析
-                formatted_result = format_op_level_results(result, show_ops=True, top_ops=15, detailed=True)
+                formatted_result = format_op_level_results(result, show_ops, top_ops, detailed)
             else:
                 # 简化输出：只显示主要指标
                 formatted_result = format_results(simplified_result, format, verbose)
@@ -119,73 +140,6 @@ def estimate(model: str, accelerator: Optional[str],
         click.echo(f"错误: {e}", err=True)
         raise click.Abort()
 
-
-@cli.command("estimate-ops")
-@click.option("--model", "-m", required=True, help="模型名称")
-@click.option("--accelerator", "-a", help="加速器型号 (如: rtx-4090, a100-40gb, i9-13900k)")
-@click.option("--batch-size", "-b", type=int, default=1, help="批次大小")
-@click.option("--context-length", "-l", type=int, help="上下文长度")
-@click.option("--precision", "-p", default="fp16", help="精度类型 (fp32/fp16/bf16/int8/int4)")
-@click.option("--output", "-o", type=click.Path(), help="输出文件路径")
-@click.option("--format", "-f", default="table", type=click.Choice(["table", "json", "csv"]), help="输出格式")
-@click.option("--show-ops", is_flag=True, help="显示详细的操作分解")
-@click.option("--top-ops", type=int, default=10, help="显示前N个最耗时的操作")
-@click.option("--detailed", is_flag=True, help="显示完整的详细分析")
-def estimate_ops(model: str, accelerator: Optional[str],
-                batch_size: int, context_length: Optional[int], precision: str,
-                output: Optional[str], format: str, show_ops: bool, top_ops: int, detailed: bool):
-    """
-    执行操作级别的详细性能估算
-    
-    基于矩阵乘法运算的算力和带宽利用率，
-    细化到每个transformer操作的耗时估算。
-    """
-    
-    try:
-        # 创建估算器
-        estimator = PerformanceEstimator()
-        
-        # 构建硬件配置
-        hardware_config = {}
-        
-        # 使用加速器参数
-        if accelerator:
-            hardware_config["accelerator"] = accelerator
-        else:
-            raise click.BadParameter("必须指定 --accelerator 参数")
-            
-        # 构建模型配置
-        model_config = {
-            "batch_size": batch_size,
-            "precision": precision
-        }
-        if context_length:
-            model_config["context_length"] = context_length
-        
-        # 执行操作级别估算
-        result = estimator.estimate_op_level(
-            model_name=model,
-            hardware_config=hardware_config,
-            model_config=model_config
-        )
-        
-        # 格式化输出
-        if format == "json":
-            formatted_result = json.dumps(result, indent=2, ensure_ascii=False)
-        else:
-            formatted_result = format_op_level_results(result, show_ops, top_ops, detailed)
-        
-        # 输出结果
-        if output:
-            with open(output, 'w', encoding='utf-8') as f:
-                f.write(formatted_result)
-            click.echo(f"结果已保存到: {output}")
-        else:
-            click.echo(formatted_result)
-            
-    except Exception as e:
-        click.echo(f"错误: {e}", err=True)
-        raise click.Abort()
 
 
 def format_op_level_results(result: Dict[str, Any], show_ops: bool = False, 
@@ -390,119 +344,6 @@ def list_accelerators(type: Optional[str]):
         headers = ["型号", "厂商", "算力", "内存带宽", "内存容量", "功耗"]
         table = tabulate(data, headers=headers, tablefmt="grid")
         click.echo(table)
-
-
-@cli.command()
-@click.option("--model", "-m", help="模型名称（用于筛选）")
-@click.option("--accelerator", "-a", help="加速器型号（用于筛选）")
-def interactive(model: Optional[str], accelerator: Optional[str]):
-    """交互式模式"""
-    click.echo("欢迎使用LLM性能估算工具交互模式!")
-    click.echo("输入 'help' 查看帮助，输入 'quit' 退出")
-    
-    while True:
-        try:
-            command = click.prompt("\nllm-estimate", type=str)
-            
-            if command.lower() in ['quit', 'exit', 'q']:
-                click.echo("再见!")
-                break
-            elif command.lower() in ['help', 'h']:
-                show_interactive_help()
-            elif command.lower().startswith('list'):
-                if 'models' in command:
-                    list_models.callback()
-                elif 'accelerators' in command or 'hardware' in command:
-                    list_accelerators.callback(None)
-            else:
-                click.echo("未知命令，输入 'help' 查看帮助")
-                
-        except (KeyboardInterrupt, EOFError):
-            click.echo("\n再见!")
-            break
-        except Exception as e:
-            click.echo(f"错误: {e}")
-
-
-def show_interactive_help():
-    """显示交互模式帮助"""
-    help_text = """
-可用命令:
-  list models        - 列出支持的模型
-  list accelerators  - 列出支持的加速器
-  help              - 显示此帮助信息
-  quit              - 退出程序
-  
-示例:
-  estimate --model llama-2-7b --accelerator rtx-4090
-  benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024 --output-lengths 128,256
-  """
-    click.echo(help_text)
-
-
-@cli.command()
-@click.option("--models", "-m", required=True, help="模型列表，逗号分隔")
-@click.option("--accelerator", "-a", required=True, help="加速器型号")
-@click.option("--output", "-o", type=click.Path(), help="输出文件路径")
-def compare(models: str, accelerator: str, output: Optional[str]):
-    """比较多个模型的性能（基于操作级别的详细分析）"""
-    
-    model_list = [m.strip() for m in models.split(",")]
-    estimator = PerformanceEstimator()
-    
-    results = []
-    for model_name in model_list:
-        try:
-            # 使用操作级别估算
-            result = estimator.estimate_op_level(
-                model_name=model_name,
-                hardware_config={"accelerator": accelerator}
-            )
-            
-            # 提取主要指标
-            op_analysis = result["op_level_analysis"]
-            
-            # 从操作级别分析计算各种利用率
-            bottleneck_analysis = op_analysis["bottleneck_analysis"]
-            compute_utilization = bottleneck_analysis["compute_bound_percentage"]
-            memory_utilization = bottleneck_analysis["memory_bound_percentage"]
-            overall_utilization = max(compute_utilization, memory_utilization)
-            
-            simplified_result = {
-                "model_name": model_name,
-                "model_info": result["model_info"],
-                "system_info": result["system_info"],
-                "throughput_tokens_per_sec": op_analysis["throughput_tokens_per_sec"],
-                "latency_ms": op_analysis["total_time_per_token_ms"],
-                "memory_usage_gb": op_analysis["memory_usage_gb"],
-                "bottleneck": bottleneck_analysis["major_bottleneck"],
-                "utilization_percent": overall_utilization,
-                "compute_utilization_percent": compute_utilization,
-                "memory_bandwidth_utilization_percent": memory_utilization,
-                "memory_capacity_utilization_percent": memory_utilization,
-                "compute_util": compute_utilization,
-                "memory_util": memory_utilization
-            }
-            
-            results.append({
-                "model": model_name,
-                "result": simplified_result
-            })
-        except Exception as e:
-            click.echo(f"估算 {model_name} 时出错: {e}")
-    
-    # 格式化比较结果
-    if results:
-        comparison_table = format_comparison_results(results)
-        
-        if output:
-            with open(output, 'w', encoding='utf-8') as f:
-                f.write(comparison_table)
-            click.echo(f"比较结果已保存到: {output}")
-        else:
-            click.echo(comparison_table)
-    else:
-        click.echo("没有成功估算的模型")
 
 
 @cli.command()
