@@ -62,13 +62,24 @@ def calculate_performance_metrics(estimator: PerformanceEstimator,
     )
     prefill_analysis = prefill_result["op_level_analysis"]
     
-    # TTFT: prefill阶段处理整个输入序列的时间
-    ttft_ms = prefill_analysis["total_time_per_token_ms"] * input_length
+    # TTFT: prefill阶段的单次前向传播时间
+    # 注意：prefill阶段处理整个输入序列，但各层操作是并行的，所以不需要乘以input_length
+    ttft_ms = prefill_analysis["total_time_per_token_ms"]
     
     # 计算 TPOT：考虑序列长度随时间的增长
     if output_length == 1:
-        # 只有一个输出token
-        tpot_ms = prefill_analysis["total_time_per_token_ms"]
+        # 只有一个输出token，使用decode阶段的时间
+        decode_result_single = estimator.estimate_op_level(
+            model_name=model_name,
+            hardware_config=hardware_config,
+            model_config={
+                "batch_size": batch_size,
+                "precision": precision,
+                "context_length": input_length,
+                "max_new_tokens": 1
+            }
+        )
+        tpot_ms = decode_result_single["op_level_analysis"]["total_time_per_token_ms"]
         total_latency_ms = ttft_ms
         total_decode_time = 0
     else:
