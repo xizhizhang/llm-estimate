@@ -84,7 +84,7 @@ def estimate(model: str, accelerator: Optional[str],
             "system_info": result["system_info"],
             "throughput_tokens_per_sec": op_analysis["throughput_tokens_per_sec"],
             "latency_ms": op_analysis["total_time_per_token_ms"],
-            "memory_usage_gb": result["traditional_analysis"]["memory_usage_gb"],
+            "memory_usage_gb": op_analysis["memory_usage_gb"],
             "bottleneck": bottleneck_analysis["major_bottleneck"],
             "utilization_percent": overall_utilization,
             "compute_utilization_percent": compute_utilization,
@@ -201,8 +201,6 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
     model_info = result["model_info"]
     system_info = result["system_info"]
     op_analysis = result["op_level_analysis"]
-    traditional_analysis = result["traditional_analysis"]
-    comparison = result["comparison"]
     
     # 模型信息
     output.append(f"\n模型: {model_info['name']}")
@@ -218,12 +216,10 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
         output.append(f"  - {acc['name']}: {acc['compute_capability_tflops']:.1f} TFLOPS, "
                      f"{acc['memory_bandwidth_gb_s']:.0f} GB/s, {acc['memory_capacity_gb']:.0f} GB")
     
-    # 性能对比
-    output.append(f"\n性能对比:")
-    output.append(f"  操作级别估算: {op_analysis['throughput_tokens_per_sec']:.1f} tokens/s")
-    output.append(f"  传统估算:     {traditional_analysis['throughput_tokens_per_sec']:.1f} tokens/s")
-    output.append(f"  差异:         {comparison['throughput_difference_percent']:+.1f}%")
-    output.append(f"  估算准确性:   {comparison['accuracy_note']}")
+    # 性能指标
+    output.append(f"\n性能指标:")
+    output.append(f"  吞吐量: {op_analysis['throughput_tokens_per_sec']:.1f} tokens/s")
+    output.append(f"  延迟: {op_analysis['total_time_per_token_ms']:.1f} ms/token")
     
     # 瓶颈分析
     bottleneck = op_analysis["bottleneck_analysis"]
@@ -259,11 +255,11 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
     output.append(table)
     
     # 主要瓶颈操作
-    if comparison["major_bottleneck_ops"]:
-        output.append(f"\n主要瓶颈操作 (前{min(top_ops, len(comparison['major_bottleneck_ops']))}个):")
+    if op_analysis.get("major_bottleneck_ops"):
+        output.append(f"\n主要瓶颈操作 (前{min(top_ops, len(op_analysis['major_bottleneck_ops']))}个):")
         
         bottleneck_data = []
-        for i, op in enumerate(comparison["major_bottleneck_ops"][:top_ops]):
+        for i, op in enumerate(op_analysis["major_bottleneck_ops"][:top_ops]):
             bottleneck_data.append([
                 i + 1,
                 op["name"],
@@ -303,7 +299,7 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
     
     # 优化建议
     output.append(f"\n优化建议:")
-    recommendations = result["comprehensive_recommendations"]
+    recommendations = result.get("comprehensive_recommendations", [])
     for rec in recommendations:
         output.append(f"  {rec}")
     
@@ -478,7 +474,7 @@ def compare(models: str, accelerator: str, output: Optional[str]):
                 "system_info": result["system_info"],
                 "throughput_tokens_per_sec": op_analysis["throughput_tokens_per_sec"],
                 "latency_ms": op_analysis["total_time_per_token_ms"],
-                "memory_usage_gb": result["traditional_analysis"]["memory_usage_gb"],
+                "memory_usage_gb": op_analysis["memory_usage_gb"],
                 "bottleneck": bottleneck_analysis["major_bottleneck"],
                 "utilization_percent": overall_utilization,
                 "compute_utilization_percent": compute_utilization,
@@ -650,7 +646,7 @@ def benchmark(model: str, accelerator: str, input_lengths: str, output_lengths: 
                 actual_throughput = total_tokens / (total_latency_ms / 1000) if total_latency_ms > 0 else 0
                 
                 # 获取其他指标
-                memory_usage_gb = result["traditional_analysis"]["memory_usage_gb"]
+                memory_usage_gb = op_analysis["memory_usage_gb"]
                 
                 # 使用decode阶段的利用率作为主要指标（因为这是推理的常态）
                 utilization_percent = max(

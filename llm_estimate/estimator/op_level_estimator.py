@@ -527,12 +527,16 @@ class OpLevelEstimator:
         bottleneck_analysis = self._analyze_bottlenecks(all_ops)
         optimization_suggestions = self._generate_optimization_suggestions(op_stats, bottleneck_analysis)
         
+        # 计算内存使用量 (基于模型参数和激活值)
+        memory_usage_gb = self._estimate_memory_usage(model)
+        
         return {
             "model_name": model.name,
             "total_time_per_token_ms": total_time_ms,
             "throughput_tokens_per_sec": 1000.0 / total_time_ms if total_time_ms > 0 else 0,
             "total_flops": total_flops,
             "total_memory_bytes": total_memory_bytes,
+            "memory_usage_gb": memory_usage_gb,
             "op_breakdown": op_stats,
             "layer_breakdown": [
                 {
@@ -611,3 +615,9 @@ class OpLevelEstimator:
                 suggestions.append("  - 考虑使用Tensor Core加速")
         
         return suggestions 
+    
+    def _estimate_memory_usage(self, model: BaseModel) -> float:
+        """估算模型的内存使用量 (GB)"""
+        # 使用模型的内存计算方法
+        memory_info = model.calculate_memory_usage("fp16")  # 默认使用fp16
+        return memory_info.get("total_inference_gb", 0)

@@ -113,8 +113,8 @@ class PerformanceEstimator:
         # 执行操作级别估算
         op_level_result = self.op_level_estimator.estimate_model_ops(model, system_spec)
         
-        # 添加传统估算结果进行对比
-        traditional_result = self.estimate(model_name, hardware_config, model_config)
+        # 添加主要瓶颈操作到结果中
+        op_level_result["major_bottleneck_ops"] = self._identify_major_bottleneck_ops(op_level_result)
         
         # 组合结果
         combined_result = {
@@ -126,45 +126,13 @@ class PerformanceEstimator:
             # 操作级别详细结果
             "op_level_analysis": op_level_result,
             
-            # 传统估算结果对比
-            "traditional_analysis": {
-                "throughput_tokens_per_sec": traditional_result["throughput_tokens_per_sec"],
-                "latency_ms": traditional_result["latency_ms"],
-                "memory_usage_gb": traditional_result["memory_usage_gb"],
-                "bottleneck": traditional_result["bottleneck"],
-                "bottleneck_details": traditional_result["bottleneck_details"]
-            },
-            
-            # 对比分析
-            "comparison": self._compare_estimations(op_level_result, traditional_result),
-            
             # 综合建议
             "comprehensive_recommendations": self._generate_comprehensive_recommendations(
-                op_level_result, traditional_result, model, system_spec
+                op_level_result, model, system_spec
             )
         }
         
         return combined_result
-    
-    def _compare_estimations(self, op_level_result: Dict[str, Any], 
-                           traditional_result: Dict[str, Any]) -> Dict[str, Any]:
-        """对比操作级别估算和传统估算的结果"""
-        op_throughput = op_level_result["throughput_tokens_per_sec"]
-        traditional_throughput = traditional_result["throughput_tokens_per_sec"]
-        
-        # 计算差异
-        throughput_diff_percent = 0.0
-        if traditional_throughput > 0:
-            throughput_diff_percent = ((op_throughput - traditional_throughput) / traditional_throughput) * 100
-        
-        return {
-            "throughput_difference_percent": throughput_diff_percent,
-            "op_level_throughput": op_throughput,
-            "traditional_throughput": traditional_throughput,
-            "more_accurate_method": "op_level" if abs(throughput_diff_percent) > 10 else "similar",
-            "accuracy_note": "操作级别估算考虑了GEMM效率和内存访问模式，通常更准确" if abs(throughput_diff_percent) > 10 else "两种方法结果接近",
-            "major_bottleneck_ops": self._identify_major_bottleneck_ops(op_level_result)
-        }
     
     def _identify_major_bottleneck_ops(self, op_level_result: Dict[str, Any]) -> List[Dict[str, Any]]:
         """识别主要的瓶颈操作"""
@@ -191,7 +159,6 @@ class PerformanceEstimator:
         return bottleneck_ops
     
     def _generate_comprehensive_recommendations(self, op_level_result: Dict[str, Any],
-                                              traditional_result: Dict[str, Any],
                                               model: BaseModel, 
                                               system_spec: SystemSpec) -> List[str]:
         """基于操作级别分析生成综合优化建议"""
@@ -203,8 +170,7 @@ class PerformanceEstimator:
         recommendations.extend(op_suggestions)
         
         # 基于主要瓶颈操作的建议
-        comparison = self._compare_estimations(op_level_result, traditional_result)
-        major_bottleneck_ops = comparison["major_bottleneck_ops"]
+        major_bottleneck_ops = self._identify_major_bottleneck_ops(op_level_result)
         
         if major_bottleneck_ops:
             recommendations.append("\n=== 主要瓶颈操作优化建议 ===")
