@@ -36,6 +36,7 @@ class ModelConfig(PydanticModel):
     batch_size: int = Field(default=1, description="批次大小")
     precision: str = Field(default="fp16", description="精度类型")
     use_kv_cache: bool = Field(default=True, description="是否使用KV缓存")
+    inference_mode: str = Field(default="prefill", description="推理模式：prefill或decode")
     temperature: float = Field(default=0.7, description="温度参数")
     top_p: float = Field(default=0.9, description="top-p采样参数")
     max_new_tokens: int = Field(default=512, description="最大生成token数")

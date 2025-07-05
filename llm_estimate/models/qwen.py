@@ -27,6 +27,12 @@ class QwenModel(BaseModel):
         head_dim = self.specs.head_dim
         vocab_size = self.specs.vocab_size
         
+        # 根据推理模式调整序列长度
+        # 在decode模式下，只处理一个新token，但需要与cache中的所有token做注意力计算
+        is_decode_mode = self.config.inference_mode == "decode" and self.config.use_kv_cache
+        current_seq_len = 1 if is_decode_mode else seq_len
+        attention_seq_len = seq_len  # 注意力计算时的序列长度（包括cache）
+        
         # 为每一层生成操作分解
         for layer_idx in range(self.specs.layers):
             
@@ -34,30 +40,32 @@ class QwenModel(BaseModel):
             attention_ops = []
             
             # 1. Q/K/V投影 - 3个GEMM操作 (支持GQA)
-            # Q投影: [batch*seq, hidden] @ [hidden, hidden] = [batch*seq, hidden]
+            # 在decode模式下，只处理一个新token的投影
+            
+            # Q投影: [batch*current_seq, hidden] @ [hidden, hidden] = [batch*current_seq, hidden]
             q_proj = OpProfile(
                 op_type=OpType.GEMM_QKV_PROJ,
                 op_name=f"layer_{layer_idx}_q_proj",
-                flops=2 * batch_size * seq_len * hidden_size * hidden_size,
-                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * hidden_size + 
-                             batch_size * seq_len * hidden_size) * 2,  # bf16
+                flops=2 * batch_size * current_seq_len * hidden_size * hidden_size,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * hidden_size + 
+                             batch_size * current_seq_len * hidden_size) * 2,  # bf16
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=hidden_size,
                 k=hidden_size
             )
             attention_ops.append(q_proj)
             
-            # K投影: [batch*seq, hidden] @ [hidden, kv_hidden] = [batch*seq, kv_hidden]
+            # K投影: [batch*current_seq, hidden] @ [hidden, kv_hidden] = [batch*current_seq, kv_hidden]
             kv_hidden = num_kv_heads * head_dim
             k_proj = OpProfile(
                 op_type=OpType.GEMM_QKV_PROJ,
                 op_name=f"layer_{layer_idx}_k_proj",
-                flops=2 * batch_size * seq_len * hidden_size * kv_hidden,
-                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * kv_hidden + 
-                             batch_size * seq_len * kv_hidden) * 2,
+                flops=2 * batch_size * current_seq_len * hidden_size * kv_hidden,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * kv_hidden + 
+                             batch_size * current_seq_len * kv_hidden) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=kv_hidden,
                 k=hidden_size
             )
@@ -67,61 +75,96 @@ class QwenModel(BaseModel):
             v_proj = OpProfile(
                 op_type=OpType.GEMM_QKV_PROJ,
                 op_name=f"layer_{layer_idx}_v_proj",
-                flops=2 * batch_size * seq_len * hidden_size * kv_hidden,
-                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * kv_hidden + 
-                             batch_size * seq_len * kv_hidden) * 2,
+                flops=2 * batch_size * current_seq_len * hidden_size * kv_hidden,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * kv_hidden + 
+                             batch_size * current_seq_len * kv_hidden) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=kv_hidden,
                 k=hidden_size
             )
             attention_ops.append(v_proj)
             
             # 2. RoPE位置编码 - 元素级操作
+            # 在decode模式下，只需要为当前token计算RoPE
             rope_op = OpProfile(
                 op_type=OpType.ELEMENTWISE_ROPE,
                 op_name=f"layer_{layer_idx}_rope",
-                flops=6 * batch_size * seq_len * hidden_size,  # RoPE rotation computation
-                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2  # Q和K的RoPE应用
+                flops=6 * batch_size * current_seq_len * hidden_size,  # RoPE rotation computation
+                memory_bytes=batch_size * current_seq_len * hidden_size * 2 * 2  # Q和K的RoPE应用
             )
             attention_ops.append(rope_op)
             
             # 3. 注意力计算 - Q@K^T
-            # [batch, heads, seq, head_dim] @ [batch, heads, head_dim, seq] = [batch, heads, seq, seq]
+            # 在decode模式下，Q只有1个token，但要与cache中的所有K做计算
+            # 复杂度从O(seq²)降低到O(seq)
+            if is_decode_mode:
+                # Decode模式: [batch, heads, 1, head_dim] @ [batch, heads, head_dim, seq_len] = [batch, heads, 1, seq_len]
+                attention_qk_flops = 2 * batch_size * num_heads * 1 * attention_seq_len * head_dim
+                attention_qk_memory = (batch_size * num_heads * 1 * head_dim + 
+                                      batch_size * num_heads * head_dim * attention_seq_len + 
+                                      batch_size * num_heads * 1 * attention_seq_len) * 2
+                qk_m, qk_n, qk_k = 1, attention_seq_len, head_dim
+            else:
+                # Prefill模式: [batch, heads, seq, head_dim] @ [batch, heads, head_dim, seq] = [batch, heads, seq, seq]
+                attention_qk_flops = 2 * batch_size * num_heads * seq_len * seq_len * head_dim
+                attention_qk_memory = (batch_size * num_heads * seq_len * head_dim * 2 + 
+                                      batch_size * num_heads * seq_len * seq_len) * 2
+                qk_m, qk_n, qk_k = seq_len, seq_len, head_dim
+            
             attention_qk = OpProfile(
                 op_type=OpType.GEMM_ATTENTION,
                 op_name=f"layer_{layer_idx}_attention_qk",
-                flops=2 * batch_size * num_heads * seq_len * seq_len * head_dim,
-                memory_bytes=(batch_size * num_heads * seq_len * head_dim * 2 + 
-                             batch_size * num_heads * seq_len * seq_len) * 2,
+                flops=attention_qk_flops,
+                memory_bytes=attention_qk_memory,
                 is_gemm=True,
-                m=seq_len,
-                n=seq_len,
-                k=head_dim
+                m=qk_m,
+                n=qk_n,
+                k=qk_k
             )
             attention_ops.append(attention_qk)
             
             # 4. Softmax - 元素级操作
+            # 在decode模式下，只需要对一个query的注意力分数做softmax
+            if is_decode_mode:
+                softmax_flops = 3 * batch_size * num_heads * 1 * attention_seq_len  # exp + sum + div
+                softmax_memory = batch_size * num_heads * 1 * attention_seq_len * 2 * 2  # 读写两次
+            else:
+                softmax_flops = 3 * batch_size * num_heads * seq_len * seq_len  # exp + sum + div
+                softmax_memory = batch_size * num_heads * seq_len * seq_len * 2 * 2  # 读写两次
+            
             softmax_op = OpProfile(
                 op_type=OpType.ELEMENTWISE_SOFTMAX,
                 op_name=f"layer_{layer_idx}_softmax",
-                flops=3 * batch_size * num_heads * seq_len * seq_len,  # exp + sum + div
-                memory_bytes=batch_size * num_heads * seq_len * seq_len * 2 * 2  # 读写两次
+                flops=softmax_flops,
+                memory_bytes=softmax_memory
             )
             attention_ops.append(softmax_op)
             
             # 5. 注意力输出 - Attention@V  
+            # 在decode模式下，[batch, heads, 1, seq_len] @ [batch, heads, seq_len, head_dim] = [batch, heads, 1, head_dim]
+            if is_decode_mode:
+                attention_v_flops = 2 * batch_size * num_heads * 1 * attention_seq_len * head_dim
+                attention_v_memory = (batch_size * num_heads * 1 * attention_seq_len + 
+                                     batch_size * num_heads * attention_seq_len * head_dim + 
+                                     batch_size * num_heads * 1 * head_dim) * 2
+                v_m, v_n, v_k = 1, head_dim, attention_seq_len
+            else:
+                attention_v_flops = 2 * batch_size * num_heads * seq_len * seq_len * head_dim
+                attention_v_memory = (batch_size * num_heads * seq_len * seq_len + 
+                                     batch_size * num_heads * seq_len * head_dim + 
+                                     batch_size * num_heads * seq_len * head_dim) * 2
+                v_m, v_n, v_k = seq_len, head_dim, seq_len
+            
             attention_v = OpProfile(
                 op_type=OpType.GEMM_ATTENTION,
                 op_name=f"layer_{layer_idx}_attention_v",
-                flops=2 * batch_size * num_heads * seq_len * seq_len * head_dim,
-                memory_bytes=(batch_size * num_heads * seq_len * seq_len + 
-                             batch_size * num_heads * seq_len * head_dim + 
-                             batch_size * num_heads * seq_len * head_dim) * 2,
+                flops=attention_v_flops,
+                memory_bytes=attention_v_memory,
                 is_gemm=True,
-                m=seq_len,
-                n=head_dim,
-                k=seq_len
+                m=v_m,
+                n=v_n,
+                k=v_k
             )
             attention_ops.append(attention_v)
             
@@ -129,11 +172,11 @@ class QwenModel(BaseModel):
             output_proj = OpProfile(
                 op_type=OpType.GEMM_OUTPUT_PROJ,
                 op_name=f"layer_{layer_idx}_output_proj",
-                flops=2 * batch_size * seq_len * hidden_size * hidden_size,
-                memory_bytes=(batch_size * seq_len * hidden_size + hidden_size * hidden_size + 
-                             batch_size * seq_len * hidden_size) * 2,
+                flops=2 * batch_size * current_seq_len * hidden_size * hidden_size,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + hidden_size * hidden_size + 
+                             batch_size * current_seq_len * hidden_size) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=hidden_size,
                 k=hidden_size
             )
@@ -143,8 +186,8 @@ class QwenModel(BaseModel):
             rms_norm_1 = OpProfile(
                 op_type=OpType.ELEMENTWISE_LAYER_NORM,
                 op_name=f"layer_{layer_idx}_rms_norm_1",
-                flops=2 * batch_size * seq_len * hidden_size,  # RMSNorm: sqrt(mean(x^2)) + scale
-                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2  # 读写两次
+                flops=2 * batch_size * current_seq_len * hidden_size,  # RMSNorm: sqrt(mean(x^2)) + scale
+                memory_bytes=batch_size * current_seq_len * hidden_size * 2 * 2  # 读写两次
             )
             attention_ops.append(rms_norm_1)
             
@@ -162,12 +205,12 @@ class QwenModel(BaseModel):
             gate_proj = OpProfile(
                 op_type=OpType.GEMM_FFN_GATE,
                 op_name=f"layer_{layer_idx}_ffn_gate",
-                flops=2 * batch_size * seq_len * hidden_size * intermediate_size,
-                memory_bytes=(batch_size * seq_len * hidden_size + 
+                flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + 
                              hidden_size * intermediate_size + 
-                             batch_size * seq_len * intermediate_size) * 2,
+                             batch_size * current_seq_len * intermediate_size) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=intermediate_size,
                 k=hidden_size
             )
@@ -177,12 +220,12 @@ class QwenModel(BaseModel):
             up_proj = OpProfile(
                 op_type=OpType.GEMM_FFN_UP,
                 op_name=f"layer_{layer_idx}_ffn_up",
-                flops=2 * batch_size * seq_len * hidden_size * intermediate_size,
-                memory_bytes=(batch_size * seq_len * hidden_size + 
+                flops=2 * batch_size * current_seq_len * hidden_size * intermediate_size,
+                memory_bytes=(batch_size * current_seq_len * hidden_size + 
                              hidden_size * intermediate_size + 
-                             batch_size * seq_len * intermediate_size) * 2,
+                             batch_size * current_seq_len * intermediate_size) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=intermediate_size,
                 k=hidden_size
             )
@@ -192,8 +235,8 @@ class QwenModel(BaseModel):
             activation_op = OpProfile(
                 op_type=OpType.ELEMENTWISE_ACTIVATION,
                 op_name=f"layer_{layer_idx}_swiglu",
-                flops=batch_size * seq_len * intermediate_size,  # 简化估算
-                memory_bytes=batch_size * seq_len * intermediate_size * 2 * 2  # gate * up
+                flops=batch_size * current_seq_len * intermediate_size,  # 简化估算
+                memory_bytes=batch_size * current_seq_len * intermediate_size * 2 * 2  # gate * up
             )
             ffn_ops.append(activation_op)
             
@@ -201,12 +244,12 @@ class QwenModel(BaseModel):
             down_proj = OpProfile(
                 op_type=OpType.GEMM_FFN_DOWN,
                 op_name=f"layer_{layer_idx}_ffn_down",
-                flops=2 * batch_size * seq_len * intermediate_size * hidden_size,
-                memory_bytes=(batch_size * seq_len * intermediate_size + 
+                flops=2 * batch_size * current_seq_len * intermediate_size * hidden_size,
+                memory_bytes=(batch_size * current_seq_len * intermediate_size + 
                              intermediate_size * hidden_size + 
-                             batch_size * seq_len * hidden_size) * 2,
+                             batch_size * current_seq_len * hidden_size) * 2,
                 is_gemm=True,
-                m=batch_size * seq_len,
+                m=batch_size * current_seq_len,
                 n=hidden_size,
                 k=intermediate_size
             )
@@ -216,8 +259,8 @@ class QwenModel(BaseModel):
             rms_norm_2 = OpProfile(
                 op_type=OpType.ELEMENTWISE_LAYER_NORM,
                 op_name=f"layer_{layer_idx}_rms_norm_2",
-                flops=2 * batch_size * seq_len * hidden_size,  # RMSNorm计算
-                memory_bytes=batch_size * seq_len * hidden_size * 2 * 2
+                flops=2 * batch_size * current_seq_len * hidden_size,  # RMSNorm计算
+                memory_bytes=batch_size * current_seq_len * hidden_size * 2 * 2
             )
             ffn_ops.append(rms_norm_2)
             
@@ -229,15 +272,16 @@ class QwenModel(BaseModel):
             layer_profiles.append(ffn_layer)
         
         # === 添加LM Head ===
+        # 在decode模式下，只需要为一个token计算词汇表投影
         lm_head_op = OpProfile(
             op_type=OpType.GEMM_LM_HEAD,
             op_name="lm_head",
-            flops=2 * batch_size * seq_len * hidden_size * vocab_size,
-            memory_bytes=(batch_size * seq_len * hidden_size + 
+            flops=2 * batch_size * current_seq_len * hidden_size * vocab_size,
+            memory_bytes=(batch_size * current_seq_len * hidden_size + 
                          hidden_size * vocab_size + 
-                         batch_size * seq_len * vocab_size) * 2,
+                         batch_size * current_seq_len * vocab_size) * 2,
             is_gemm=True,
-            m=batch_size * seq_len,
+            m=batch_size * current_seq_len,
             n=vocab_size,
             k=hidden_size
         )
