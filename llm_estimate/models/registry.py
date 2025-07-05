@@ -24,7 +24,7 @@ class ModelRegistry:
         self.register("llama", LlamaModel)
         
         # 注册Qwen系列模型
-        self.register("qwen", QwenModel)
+        self.register("qwen3", QwenModel)
         
         # 添加模型规格数据
         self._load_model_specs()

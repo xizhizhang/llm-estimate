@@ -179,7 +179,7 @@ LLAMA_DEFAULT_PARAMS = {
     "precision": "fp16"
 }
 
-QWEN_DEFAULT_PARAMS = {
+QWEN3_DEFAULT_PARAMS = {
     "context_length": 8192,
     "batch_size": 1,
     "precision": "fp16"

@@ -19,11 +19,22 @@ LLAMA_DEFAULT_PARAMS = {
     "max_new_tokens": 512
 }
 
-# Qwen系列默认配置
-QWEN_DEFAULT_PARAMS = {
-    "context_length": 8192,
+# Qwen3系列默认配置
+QWEN3_DEFAULT_PARAMS = {
+    "context_length": 32768,
     "batch_size": 1,
-    "precision": "fp16",
+    "precision": "bf16",
+    "use_kv_cache": True,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_new_tokens": 512
+}
+
+# Qwen3-MoE系列默认配置
+QWEN3_MOE_DEFAULT_PARAMS = {
+    "context_length": 32768,
+    "batch_size": 1,
+    "precision": "bf16",
     "use_kv_cache": True,
     "temperature": 0.7,
     "top_p": 0.9,
@@ -37,21 +48,14 @@ MODEL_SPECIFIC_CONFIGS = {
         "context_length": 4096,
         "max_new_tokens": 512
     },
-    
-    # Qwen系列
-    "qwen-7b": {
-        "context_length": 8192,
+    "qwen3-0.6b": {
+        "context_length": 4096,
         "max_new_tokens": 1024
     },
-    "qwen-14b": {
-        "context_length": 8192,
+    "qwen3-1.7b": {
+        "context_length": 4096,
         "max_new_tokens": 1024
     },
-    "qwen-72b": {
-        "context_length": 32768,
-        "max_new_tokens": 2048,
-        "batch_size": 1
-    }
 }
 
 # 精度相关配置
@@ -91,8 +95,10 @@ class ModelConfigManager:
         """
         if model_type == "llama":
             return ModelConfig(**LLAMA_DEFAULT_PARAMS)
-        elif model_type == "qwen":
-            return ModelConfig(**QWEN_DEFAULT_PARAMS)
+        elif model_type == "qwen3":
+            return ModelConfig(**QWEN3_DEFAULT_PARAMS)
+        elif model_type == "qwen3-moe":
+            return ModelConfig(**QWEN3_MOE_DEFAULT_PARAMS)
         else:
             # 使用通用默认配置
             return ModelConfig()
@@ -111,8 +117,10 @@ class ModelConfigManager:
         # 确定模型类型
         if "llama" in model_name.lower():
             base_config = LLAMA_DEFAULT_PARAMS.copy()
-        elif "qwen" in model_name.lower():
-            base_config = QWEN_DEFAULT_PARAMS.copy()
+        elif "qwen3" in model_name.lower():
+            base_config = QWEN3_DEFAULT_PARAMS.copy()
+        elif "qwen3-moe" in model_name.lower():
+            base_config = QWEN3_MOE_DEFAULT_PARAMS.copy()
         else:
             base_config = {}
         
