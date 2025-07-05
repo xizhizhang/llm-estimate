@@ -307,44 +307,7 @@ class Qwen3MoEModel(BaseModel):
         
         return total_flops
     
-    def estimate_model_flops_per_token_simplified(self) -> float:
-        """
-        使用简化的公式估算MoE模型的FLOPS
-        
-        基于激活参数数量和MoE效率的简化计算
-        
-        Returns:
-            每个token的FLOPS数 (简化估算)
-        """
-        hidden_size = self.specs.hidden_size
-        layers = self.specs.layers
-        vocab_size = self.specs.vocab_size
-        
-        # 共享层参数
-        attention_params = layers * (4 * hidden_size * hidden_size)  # QKV + output
-        layer_norm_params = layers * 2 * hidden_size
-        embedding_params = vocab_size * hidden_size
-        
-        # MoE层参数（只计算激活的专家）
-        active_expert_params = (
-            self.num_moe_layers * self.experts_per_token * 
-            3 * hidden_size * self.specs.intermediate_size
-        )
-        
-        # 路由器参数
-        router_params = self.num_moe_layers * hidden_size * self.num_experts
-        
-        # 激活参数总数
-        total_active_params = (
-            attention_params + layer_norm_params + 
-            active_expert_params + router_params
-        )
-        
-        # 简化公式：forward pass ≈ 2N FLOPs (N为激活参数数量)
-        # 对于MoE，考虑路由器开销，系数稍微增加
-        forward_flops = 2.2 * total_active_params
-        
-        return forward_flops
+
     
     def get_performance_analysis(self) -> Dict[str, any]:
         """
@@ -354,7 +317,6 @@ class Qwen3MoEModel(BaseModel):
             包含FLOPS分解和性能指标的字典
         """
         total_flops = self.estimate_flops_per_token()
-        simplified_flops = self.estimate_model_flops_per_token_simplified()
         memory_usage = self.calculate_memory_usage(self.config.precision)
         
         # FLOPS分解分析
@@ -414,7 +376,6 @@ class Qwen3MoEModel(BaseModel):
             },
             "flops_analysis": {
                 "total_flops_per_token": total_flops,
-                "simplified_flops_per_token": simplified_flops,
                 "attention_flops_percentage": (total_attention_flops / total_flops) * 100,
                 "router_flops_percentage": (total_router_flops / total_flops) * 100,
                 "expert_flops_percentage": (total_expert_flops / total_flops) * 100,

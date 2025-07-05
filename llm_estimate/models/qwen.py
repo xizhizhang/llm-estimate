@@ -223,46 +223,7 @@ class QwenModel(BaseModel):
         
         return total_flops
     
-    def estimate_model_flops_per_token_simplified(self) -> float:
-        """
-        使用简化的 OpenAI scaling laws 公式估算 FLOPS
-        
-        基于 C_forward ≈ 2N 的公式，其中 N 是非嵌入参数数量
-        针对 Qwen 模型的特点进行调整
-        
-        Returns:
-            每个token的FLOPS数 (简化估算)
-        """
-        # 非嵌入参数数量估算
-        # 主要包括：attention layers + FFN layers + layer norms
-        hidden_size = self.specs.hidden_size
-        layers = self.specs.layers
-        vocab_size = self.specs.vocab_size
-        
-        # Attention参数: Q,K,V,O投影 (考虑GQA)
-        attention_params = layers * (
-            hidden_size * hidden_size +  # Q projection
-            2 * hidden_size * (self.specs.num_key_value_heads * self.specs.head_dim) +  # K,V projections
-            hidden_size * hidden_size  # output projection
-        )
-        
-        # FFN参数: gate, up, down投影 (SwiGLU)
-        ffn_params = layers * (3 * hidden_size * self.specs.intermediate_size)
-        
-        # Layer norm参数 (RMSNorm)
-        layer_norm_params = layers * 2 * hidden_size
-        
-        # 嵌入参数 (Qwen有更大的词汇表)
-        embedding_params = vocab_size * hidden_size
-        
-        # 非嵌入参数
-        non_embedding_params = attention_params + ffn_params + layer_norm_params
-        
-        # OpenAI公式: forward pass ≈ 2N FLOPs
-        # 对于Qwen，由于RoPE等优化，稍微调整系数
-        forward_flops = 2.1 * non_embedding_params  # 略微增加以考虑RoPE开销
-        
-        return forward_flops
+
     
     def get_performance_analysis(self) -> Dict[str, any]:
         """
@@ -272,7 +233,6 @@ class QwenModel(BaseModel):
             包含FLOPS分解和性能指标的字典
         """
         total_flops = self.estimate_flops_per_token()
-        simplified_flops = self.estimate_model_flops_per_token_simplified()
         memory_usage = self.calculate_memory_usage(self.config.precision)
         
         # FLOPS分解分析
@@ -321,7 +281,6 @@ class QwenModel(BaseModel):
             },
             "flops_analysis": {
                 "total_flops_per_token": total_flops,
-                "simplified_flops_per_token": simplified_flops,
                 "attention_flops_percentage": (total_attention_flops / total_flops) * 100,
                 "ffn_flops_percentage": (total_ffn_flops / total_flops) * 100,
                 "rope_flops_percentage": (total_rope_flops / total_flops) * 100,

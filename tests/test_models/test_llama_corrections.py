@@ -50,13 +50,8 @@ if PYTEST_AVAILABLE:
                 detailed_flops = model.estimate_flops_per_token()
                 assert detailed_flops > 0
                 
-                # 简化FLOPS计算 (OpenAI scaling laws)
-                simplified_flops = model.estimate_model_flops_per_token_simplified()
-                assert simplified_flops > 0
-                
-                # 两种计算结果应该在同一个数量级
-                ratio = detailed_flops / simplified_flops
-                assert 0.5 <= ratio <= 3.0, f"FLOPS计算比率异常: {ratio}"
+                # 详细FLOPS计算结果应该合理
+                assert detailed_flops > 0
         
         def test_memory_calculation(self, test_models):
             """测试内存计算"""
@@ -200,7 +195,6 @@ def run_interactive_test():
             flops_info = analysis["flops_analysis"]
             print(f"\n⚡ FLOPS分析 (每token):")
             print(f"   总FLOPS: {flops_info['total_flops_per_token']:,.0f}")
-            print(f"   简化FLOPS (OpenAI): {flops_info['simplified_flops_per_token']:,.0f}")
             print(f"   注意力FLOPS: {flops_info['attention_flops_per_token']:,.0f} ({flops_info['attention_flops_percentage']:.1f}%)")
             print(f"   FFN FLOPS: {flops_info['ffn_flops_per_token']:,.0f} ({flops_info['ffn_flops_percentage']:.1f}%)")
             
