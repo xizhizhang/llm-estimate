@@ -86,15 +86,16 @@ class OpLevelEstimator:
             "small": 0.75,      # 小矩阵效率 - 进一步提高
         }
         
-        # 内存带宽效率 - 考虑实际访问模式
+        # 内存带宽效率 - 考虑实际访问模式，更加保守
+        # 实际GPU内存访问受到多种因素影响：cache miss、memory controller调度、bank conflicts等
         self.memory_efficiency = {
-            "sequential": 0.95,  # 顺序访问
-            "random": 0.80,      # 随机访问 - 进一步提高
-            "broadcast": 0.90,   # 广播访问
+            "sequential": 0.85,  # 顺序访问 - 考虑实际的内存子系统开销
+            "random": 0.70,      # 随机访问 - 缓存效率较低
+            "broadcast": 0.80,   # 广播访问 - 中等效率
         }
         
-        # GPU overlap factor - 考虑计算和内存访问的重叠
-        self.compute_memory_overlap = 0.85  # 85%的重叠度 - 现代GPU重叠能力很强
+        # GPU overlap factor - 考虑计算和内存访问的重叠，更加保守
+        self.compute_memory_overlap = 0.70  # 70%的重叠度 - 更现实的重叠能力
         
         # Tensor Core加速因子 (对于支持的数据类型和矩阵形状)
         self.tensor_core_speedup = 1.5  # 1.5x加速
@@ -166,20 +167,25 @@ class OpLevelEstimator:
             op.memory_time_ms = (op.memory_bytes / effective_bandwidth) * 1000
             
             # 考虑计算和内存访问的重叠 - 现代GPU可以同时进行计算和内存访问
-            # 实际时间 = max(compute_time, memory_time) * (1 - overlap_factor) + min(compute_time, memory_time)
+            # 但对于内存受限的操作，重叠效果很有限
             max_time = max(op.compute_time_ms, op.memory_time_ms)
             min_time = min(op.compute_time_ms, op.memory_time_ms)
             
-            # 对于高算术强度的GEMM，主要受算力限制，重叠效果更好
-            if op.arithmetic_intensity > 20:  # 很高算术强度
-                overlap_factor = self.compute_memory_overlap * 1.1  # 更好的重叠
-            elif op.arithmetic_intensity > 10:  # 高算术强度
-                overlap_factor = self.compute_memory_overlap
-            else:  # 低算术强度，更多受内存限制
-                overlap_factor = self.compute_memory_overlap * 0.6
+            # 判断是否是内存受限
+            is_memory_bound = op.memory_time_ms > op.compute_time_ms
             
-            # 确保重叠因子不超过1
-            overlap_factor = min(overlap_factor, 0.95)
+            if is_memory_bound:
+                # 内存受限的操作，重叠效果很小
+                # 原因：计算很快完成，主要瓶颈是等待内存访问，重叠收益有限
+                overlap_factor = min(0.15, self.compute_memory_overlap * 0.2)  # 最多15%的重叠
+            else:
+                # 计算受限的操作，可以有更好的重叠
+                if op.arithmetic_intensity > 20:  # 很高算术强度
+                    overlap_factor = min(0.80, self.compute_memory_overlap * 1.1)
+                elif op.arithmetic_intensity > 10:  # 高算术强度
+                    overlap_factor = self.compute_memory_overlap
+                else:  # 中等算术强度
+                    overlap_factor = self.compute_memory_overlap * 0.8
                 
             op.actual_time_ms = max_time * (1 - overlap_factor) + min_time
             
@@ -195,8 +201,20 @@ class OpLevelEstimator:
             effective_bandwidth = peak_memory_bw * memory_efficiency
             op.memory_time_ms = (op.memory_bytes / effective_bandwidth) * 1000
             
-            # 元素级操作重叠度较低
-            op.actual_time_ms = max(op.compute_time_ms, op.memory_time_ms) * 0.9  # 考虑一些优化
+            # 元素级操作通常是内存受限的，重叠度很低
+            max_time = max(op.compute_time_ms, op.memory_time_ms)
+            min_time = min(op.compute_time_ms, op.memory_time_ms)
+            
+            # 元素级操作很少有重叠，特别是内存受限的操作
+            # 元素级操作通常计算简单，主要受内存带宽限制
+            if op.memory_time_ms > op.compute_time_ms:
+                # 内存受限，几乎没有重叠（如激活函数、归一化等）
+                overlap_factor = 0.05  # 只有5%的重叠
+            else:
+                # 计算受限，有一些重叠（少见情况）
+                overlap_factor = 0.20  # 20%的重叠
+                
+            op.actual_time_ms = max_time * (1 - overlap_factor) + min_time
         
         # 计算利用率
         if op.actual_time_ms > 0:

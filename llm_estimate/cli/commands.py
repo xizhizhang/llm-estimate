@@ -697,6 +697,8 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
             stats["count"],
             f"{stats['total_time_ms']:.3f}",
             f"{percentage:.1f}%",
+            f"{stats['total_flops'] / 1e9:.3f} G",
+            f"{stats['total_memory_bytes'] / 1024**2:.3f} MB",
             f"{stats['avg_compute_util']:.1f}%",
             f"{stats['avg_memory_util']:.1f}%"
         ])
@@ -704,7 +706,7 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
     # 按时间排序
     table_data.sort(key=lambda x: float(x[2]), reverse=True)
     
-    headers = ["操作类型", "数量", "总时间(ms)", "占比", "算力利用率", "内存利用率"]
+    headers = ["操作类型", "数量", "总时间(ms)", "占比", "计算量(FLOPs)", "内存读写", "算力利用率", "内存利用率"]
     table = tabulate(table_data, headers=headers, tablefmt="grid")
     output.append(table)
     
