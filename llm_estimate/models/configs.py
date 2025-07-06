@@ -7,18 +7,6 @@
 from typing import Dict, Any
 from .base import ModelConfig
 
-
-# Llama系列默认配置
-LLAMA_DEFAULT_PARAMS = {
-    "context_length": 4096,
-    "batch_size": 1,
-    "precision": "fp16",
-    "use_kv_cache": True,
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "max_new_tokens": 512
-}
-
 # Qwen3系列默认配置
 QWEN3_DEFAULT_PARAMS = {
     "context_length": 32768,
@@ -43,11 +31,6 @@ QWEN3_MOE_DEFAULT_PARAMS = {
 
 # 模型特定配置覆盖
 MODEL_SPECIFIC_CONFIGS = {
-    # Llama-2系列
-    "llama-2-7b": {
-        "context_length": 4096,
-        "max_new_tokens": 512
-    },
     "qwen3-0.6b": {
         "context_length": 4096,
         "max_new_tokens": 1024
@@ -93,9 +76,7 @@ class ModelConfigManager:
         Returns:
             默认配置对象
         """
-        if model_type == "llama":
-            return ModelConfig(**LLAMA_DEFAULT_PARAMS)
-        elif model_type == "qwen3":
+        if model_type == "qwen3":
             return ModelConfig(**QWEN3_DEFAULT_PARAMS)
         elif model_type == "qwen3-moe":
             return ModelConfig(**QWEN3_MOE_DEFAULT_PARAMS)
@@ -115,9 +96,7 @@ class ModelConfigManager:
             模型配置对象
         """
         # 确定模型类型
-        if "llama" in model_name.lower():
-            base_config = LLAMA_DEFAULT_PARAMS.copy()
-        elif "qwen3" in model_name.lower():
+        if "qwen3" in model_name.lower():
             base_config = QWEN3_DEFAULT_PARAMS.copy()
         elif "qwen3-moe" in model_name.lower():
             base_config = QWEN3_MOE_DEFAULT_PARAMS.copy()

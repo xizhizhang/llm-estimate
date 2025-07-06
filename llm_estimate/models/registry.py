@@ -6,7 +6,6 @@
 
 from typing import Dict, List, Optional, Type
 from .base import BaseModel, ModelSpecs
-from .llama import LlamaModel
 from .qwen import QwenModel
 from .qwen3_moe import Qwen3MoEModel
 from .deepseek import DeepSeekV3Model
@@ -22,8 +21,6 @@ class ModelRegistry:
     
     def _register_built_in_models(self) -> None:
         """注册内置模型"""
-        # 注册Llama系列模型
-        self.register("llama", LlamaModel)
         
         # 注册Qwen系列模型
         self.register("qwen3", QwenModel)
@@ -37,38 +34,7 @@ class ModelRegistry:
     
     def _load_model_specs(self) -> None:
         """加载模型规格数据"""
-        # Llama 2 系列 - 使用Multi-Head Attention (MHA)
-        self._model_specs.update({
-            "llama-2-7b": ModelSpecs(
-                name="llama-2-7b",
-                parameters=7,
-                layers=32,
-                hidden_size=4096,
-                intermediate_size=11008,  # Llama2-7B 的实际 FFN 中间维度
-                attention_heads=32,
-                head_dim=128,
-                num_key_value_heads=32,  # MHA: kv_heads = attention_heads
-                vocab_size=32000,
-                max_position_embeddings=4096,
-                model_type="llama"
-            ),
-            
-            # Llama 3.1 系列 - 使用Grouped Query Attention (GQA)
-            "llama-3.1-8b": ModelSpecs(
-                name="llama-3.1-8b",
-                parameters=8,
-                layers=32,
-                hidden_size=4096,
-                intermediate_size=14336,  # Llama3.1-8B 的实际 FFN 中间维度
-                attention_heads=32,
-                head_dim=128,
-                num_key_value_heads=8,  # GQA: 8 key-value heads for 32 query heads
-                vocab_size=128256,
-                max_position_embeddings=131072,  # 128K context
-                model_type="llama"
-            ),
-        })
-        
+
         # Qwen3 系列
         self._model_specs.update({
             "qwen3-8b": ModelSpecs(
