@@ -9,6 +9,7 @@ from .base import BaseModel, ModelSpecs
 from .llama import LlamaModel
 from .qwen import QwenModel
 from .qwen3_moe import Qwen3MoEModel
+from .deepseek import DeepSeekV3Model
 
 
 class ModelRegistry:
@@ -27,6 +28,9 @@ class ModelRegistry:
         # 注册Qwen系列模型
         self.register("qwen3", QwenModel)
         self.register("qwen3-moe", Qwen3MoEModel)
+        
+        # 注册DeepSeek系列模型
+        self.register("deepseek_v3", DeepSeekV3Model)
         
         # 添加模型规格数据
         self._load_model_specs()
@@ -101,6 +105,28 @@ class ModelRegistry:
                 experts_per_token=8,
                 expert_capacity=None,
                 moe_layers=None
+            ),
+        })
+
+        # DeepSeek-V3 系列
+        self._model_specs.update({
+            "deepseek-v3": ModelSpecs(
+                name="deepseek-v3",
+                parameters=671,  # 671B parameters
+                layers=61,
+                hidden_size=7168,
+                intermediate_size=18432,
+                attention_heads=128,
+                head_dim=56,  # 7168 / 128 = 56
+                num_key_value_heads=128,  # GQA ratio 1:1
+                vocab_size=129280,
+                max_position_embeddings=163840,  # 160K context with YaRN
+                model_type="deepseek_v3",
+                # MoE specific parameters
+                moe_intermediate_size=2048,
+                num_experts=257,  # 256 routed + 1 shared
+                experts_per_token=8,
+                moe_layers=list(range(3, 61))  # MoE layers from 3 to 60
             ),
         })
     
