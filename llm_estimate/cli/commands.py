@@ -316,7 +316,17 @@ def format_estimate_results(result: Dict[str, Any], format: str, verbose: bool) 
     # 硬件信息
     lines.append(f"\n硬件配置:")
     for acc in system_info["accelerators"]:
-        lines.append(f"  - {acc['name']}: {acc['compute_capability_tflops']:.1f} TFLOPS, "
+        # Handle compute_capability_tflops as dictionary
+        compute_cap = acc['compute_capability_tflops']
+        if isinstance(compute_cap, dict):
+            # Display FP16 if available, otherwise FP32, otherwise first available
+            tflops = compute_cap.get('fp16', compute_cap.get('fp32', next(iter(compute_cap.values()))))
+            precision = 'fp16' if 'fp16' in compute_cap else ('fp32' if 'fp32' in compute_cap else next(iter(compute_cap.keys())))
+            compute_str = f"{tflops:.1f} TFLOPS ({precision})"
+        else:
+            compute_str = f"{compute_cap:.1f} TFLOPS"
+        
+        lines.append(f"  - {acc['name']}: {compute_str}, "
                      f"{acc['memory_bandwidth_gb_s']:.0f} GB/s, {acc['memory_capacity_gb']:.0f} GB")
     
     # 序列长度配置
@@ -392,10 +402,20 @@ def list_accelerators(type: Optional[str]):
         
         data = []
         for name, info in items:
+            # Handle compute_capability_tflops as dictionary
+            compute_cap = info['compute_capability_tflops']
+            if isinstance(compute_cap, dict):
+                # Display FP16 if available, otherwise FP32, otherwise first available
+                tflops = compute_cap.get('fp16', compute_cap.get('fp32', next(iter(compute_cap.values()))))
+                precision = 'fp16' if 'fp16' in compute_cap else ('fp32' if 'fp32' in compute_cap else next(iter(compute_cap.keys())))
+                compute_str = f"{tflops:.1f} TFLOPS ({precision})"
+            else:
+                compute_str = f"{compute_cap:.1f} TFLOPS"
+            
             data.append([
                 info["name"],
                 info["manufacturer"],
-                f"{info['compute_capability_tflops']:.1f} TFLOPS",
+                compute_str,
                 f"{info['memory_bandwidth_gb_s']:.0f} GB/s",
                 f"{info['memory_capacity_gb']:.0f} GB",
                 f"{info['power_consumption_w']}W" if info['power_consumption_w'] else "N/A"
@@ -667,7 +687,17 @@ def format_op_level_results(result: Dict[str, Any], show_ops: bool = False,
     # 硬件信息
     output.append(f"\n硬件配置:")
     for acc in system_info["accelerators"]:
-        output.append(f"  - {acc['name']}: {acc['compute_capability_tflops']:.1f} TFLOPS, "
+        # Handle compute_capability_tflops as dictionary
+        compute_cap = acc['compute_capability_tflops']
+        if isinstance(compute_cap, dict):
+            # Display FP16 if available, otherwise FP32, otherwise first available
+            tflops = compute_cap.get('fp16', compute_cap.get('fp32', next(iter(compute_cap.values()))))
+            precision = 'fp16' if 'fp16' in compute_cap else ('fp32' if 'fp32' in compute_cap else next(iter(compute_cap.keys())))
+            compute_str = f"{tflops:.1f} TFLOPS ({precision})"
+        else:
+            compute_str = f"{compute_cap:.1f} TFLOPS"
+        
+        output.append(f"  - {acc['name']}: {compute_str}, "
                      f"{acc['memory_bandwidth_gb_s']:.0f} GB/s, {acc['memory_capacity_gb']:.0f} GB")
     
     # 性能指标

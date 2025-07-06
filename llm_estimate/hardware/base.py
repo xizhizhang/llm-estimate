@@ -18,7 +18,7 @@ class AcceleratorSpecs:
     manufacturer: str
     device_type: str  # "gpu", "cpu", "tpu", "npu" 等，仅用于分类
     # 核心性能指标
-    compute_capability_tflops: float  # 计算能力 (TFLOPS)
+    compute_capability_tflops: Dict[str, float]  # 不同精度下的计算能力 (TFLOPS)
     memory_bandwidth_gb_s: float     # 内存带宽 (GB/s)
     memory_capacity_gb: float        # 内存容量 (GB)
     # 辅助信息
@@ -56,21 +56,32 @@ class AcceleratorSpec(ABC):
     @property
     def compute_capability_tflops(self) -> float:
         """计算能力 (TFLOPS)"""
-        base_tflops = self.specs.compute_capability_tflops
-        
-        # 根据精度调整算力
-        precision_multiplier = {
-            "fp32": 1.0,
-            "fp16": 2.0,
-            "bf16": 2.0,
-            "int8": 4.0,
-            "int4": 8.0
-        }.get(self.config.precision, 1.0)
+        # 获取指定精度的算力，如果没有则使用默认精度
+        precision = self.config.precision
+        if precision in self.specs.compute_capability_tflops:
+            base_tflops = self.specs.compute_capability_tflops[precision]
+        else:
+            # 如果没有指定精度的算力，尝试使用最接近的精度
+            available_precisions = list(self.specs.compute_capability_tflops.keys())
+            if available_precisions:
+                base_tflops = self.specs.compute_capability_tflops[available_precisions[0]]
+            else:
+                base_tflops = 0.0
         
         # 考虑超频
         overclock_multiplier = 1.1 if self.config.overclock_enabled else 1.0
         
-        return base_tflops * precision_multiplier * overclock_multiplier
+        return base_tflops * overclock_multiplier
+    
+    def get_compute_capability_by_precision(self, precision: str) -> float:
+        """获取指定精度下的算力"""
+        base_tflops = self.specs.compute_capability_tflops.get(precision, 0.0)
+        overclock_multiplier = 1.1 if self.config.overclock_enabled else 1.0
+        return base_tflops * overclock_multiplier
+    
+    def get_supported_precisions(self) -> List[str]:
+        """获取支持的精度列表"""
+        return list(self.specs.compute_capability_tflops.keys())
     
     @property
     def memory_bandwidth_gb_s(self) -> float:
@@ -166,12 +177,14 @@ class AcceleratorSpec(ABC):
             "name": self.specs.name,
             "manufacturer": self.specs.manufacturer,
             "device_type": self.specs.device_type,
-            "compute_capability_tflops": self.compute_capability_tflops,
+            "compute_capability_tflops": self.specs.compute_capability_tflops,
+            "current_precision_tflops": self.compute_capability_tflops,
             "memory_bandwidth_gb_s": self.memory_bandwidth_gb_s,
             "memory_capacity_gb": self.memory_capacity_gb,
             "release_year": self.specs.release_year,
             "price_usd": self.specs.price_usd,
             "power_consumption_w": self.specs.power_consumption_w,
+            "supported_precisions": self.get_supported_precisions(),
             "config": self.config.model_dump()
         }
     
@@ -254,4 +267,4 @@ class SystemSpec:
             }
         }
         
-        return compatibility 
+        return compatibility

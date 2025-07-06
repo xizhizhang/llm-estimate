@@ -22,7 +22,11 @@ ACCELERATOR_SPECS = {
         name="RTX-4090",
         manufacturer="NVIDIA",
         device_type="gpu",
-        compute_capability_tflops=660.0,  # Tensor Core FP16/BF16算力（稠密）
+        compute_capability_tflops={
+            "fp16": 330.0,     # FP16算力
+            "bf16": 330.0,     # BF16算力
+            "fp8": 660.0,      # FP8算力（稠密）
+        },
         memory_bandwidth_gb_s=1008.0,
         memory_capacity_gb=24.0,
         release_year=2022,
@@ -34,50 +38,17 @@ ACCELERATOR_SPECS = {
         name="RTX-6001",
         manufacturer="NVIDIA",
         device_type="gpu",
-        compute_capability_tflops=500.0,  # Tensor Core FP16/BF16算力（稠密）
+        compute_capability_tflops={
+            "fp16": 500.0,     # FP16算力
+            "bf16": 500.0,     # BF16算力
+            "fp8": 1000.0,     # FP8算力（稠密）
+            "fp4": 2000.0,     # FP4算力（稠密）
+        },
         memory_bandwidth_gb_s=1800.0,
         memory_capacity_gb=96.0,
         release_year=2025,
         price_usd=10000,
         power_consumption_w=600
-    ),
-
-    "h100": AcceleratorSpecs(
-        name="H100-80GB",
-        manufacturer="NVIDIA",
-        device_type="gpu",
-        compute_capability_tflops=1979.0,  # Tensor Core BF16/FP16算力（稠密）
-        memory_bandwidth_gb_s=2039.0,
-        memory_capacity_gb=80.0,
-        release_year=2022,
-        price_usd=25000,
-        power_consumption_w=700
-    ),
-    
-    # Intel CPU系列（作为加速器）
-    "i9-13900k": AcceleratorSpecs(
-        name="i9-13900K",
-        manufacturer="Intel",
-        device_type="cpu",
-        compute_capability_tflops=1.2,  # 估算值，基于AVX-512
-        memory_bandwidth_gb_s=76.8,    # DDR5-4800双通道
-        memory_capacity_gb=128.0,      # 最大支持内存
-        release_year=2022,
-        price_usd=589,
-        power_consumption_w=125
-    ),
-    
-    # AMD CPU系列
-    "ryzen-9-7950x": AcceleratorSpecs(
-        name="Ryzen-9-7950X",
-        manufacturer="AMD",
-        device_type="cpu",
-        compute_capability_tflops=1.1,
-        memory_bandwidth_gb_s=83.2,    # DDR5-5200双通道
-        memory_capacity_gb=128.0,
-        release_year=2022,
-        price_usd=699,
-        power_consumption_w=170
     ),
     
     # Apple Silicon系列
@@ -85,25 +56,18 @@ ACCELERATOR_SPECS = {
         name="M2-Ultra",
         manufacturer="Apple",
         device_type="soc",  # System on Chip
-        compute_capability_tflops=27.2,  # GPU部分算力
+        compute_capability_tflops={
+            "fp32": 27.2,      # FP32算力（GPU部分）
+            "fp16": 54.4,      # FP16算力
+            "bf16": 54.4,      # BF16算力
+            "int8": 108.8,     # INT8算力
+            "int16": 54.4,     # INT16算力
+        },
         memory_bandwidth_gb_s=800.0,
         memory_capacity_gb=192.0,
         release_year=2023,
         price_usd=5000,  # 估算
         power_consumption_w=100
-    ),
-    
-    # Google TPU系列
-    "tpu-v4": AcceleratorSpecs(
-        name="TPU-v4",
-        manufacturer="Google",
-        device_type="tpu",
-        compute_capability_tflops=275.0,  # BF16算力
-        memory_bandwidth_gb_s=1200.0,
-        memory_capacity_gb=32.0,
-        release_year=2021,
-        price_usd=None,  # 云服务
-        power_consumption_w=200
     ),
 }
 
@@ -188,7 +152,10 @@ def compare_accelerators(accelerator_names: list) -> Dict[str, Any]:
     comparison = {
         "accelerators": [],
         "rankings": {
-            "compute_capability": [],
+            "compute_capability_fp32": [],
+            "compute_capability_fp16": [],
+            "compute_capability_bf16": [],
+            "compute_capability_int8": [],
             "memory_bandwidth": [],
             "memory_capacity": [],
             "performance_per_watt": []
@@ -208,13 +175,37 @@ def compare_accelerators(accelerator_names: list) -> Dict[str, Any]:
     
     # 按各项指标排序
     if accelerators_data:
-        # 按算力排序
-        sorted_by_compute = sorted(
+        # 按FP32算力排序
+        sorted_by_fp32 = sorted(
             accelerators_data, 
-            key=lambda x: x[1]["compute_capability_tflops"], 
+            key=lambda x: x[1]["compute_capability_tflops"].get("fp32", 0), 
             reverse=True
         )
-        comparison["rankings"]["compute_capability"] = [x[0] for x in sorted_by_compute]
+        comparison["rankings"]["compute_capability_fp32"] = [x[0] for x in sorted_by_fp32]
+        
+        # 按FP16算力排序
+        sorted_by_fp16 = sorted(
+            accelerators_data, 
+            key=lambda x: x[1]["compute_capability_tflops"].get("fp16", 0), 
+            reverse=True
+        )
+        comparison["rankings"]["compute_capability_fp16"] = [x[0] for x in sorted_by_fp16]
+        
+        # 按BF16算力排序
+        sorted_by_bf16 = sorted(
+            accelerators_data, 
+            key=lambda x: x[1]["compute_capability_tflops"].get("bf16", 0), 
+            reverse=True
+        )
+        comparison["rankings"]["compute_capability_bf16"] = [x[0] for x in sorted_by_bf16]
+        
+        # 按INT8算力排序
+        sorted_by_int8 = sorted(
+            accelerators_data, 
+            key=lambda x: x[1]["compute_capability_tflops"].get("int8", 0), 
+            reverse=True
+        )
+        comparison["rankings"]["compute_capability_int8"] = [x[0] for x in sorted_by_int8]
         
         # 按内存带宽排序
         sorted_by_bandwidth = sorted(
@@ -232,12 +223,170 @@ def compare_accelerators(accelerator_names: list) -> Dict[str, Any]:
         )
         comparison["rankings"]["memory_capacity"] = [x[0] for x in sorted_by_memory]
         
-        # 按能效比排序（算力/功耗）
+        # 按能效比排序（FP16算力/功耗）
         sorted_by_efficiency = sorted(
             accelerators_data,
-            key=lambda x: x[1]["compute_capability_tflops"] / (x[1]["power_consumption_w"] or 1),
+            key=lambda x: x[1]["compute_capability_tflops"].get("fp16", 0) / (x[1]["power_consumption_w"] or 1),
             reverse=True
         )
         comparison["rankings"]["performance_per_watt"] = [x[0] for x in sorted_by_efficiency]
     
     return comparison 
+
+
+def get_accelerator_by_precision(precision: str) -> Dict[str, Dict[str, Any]]:
+    """
+    按精度筛选并排序加速器
+    
+    Args:
+        precision: 精度类型 ("fp32", "fp16", "bf16", "int8", "int4", "tf32", "fp8")
+        
+    Returns:
+        按指定精度算力排序的加速器信息
+    """
+    all_accelerators = list_supported_accelerators()
+    
+    # 筛选支持指定精度的加速器并排序
+    supported_accelerators = {}
+    for name, info in all_accelerators.items():
+        if precision in info["compute_capability_tflops"]:
+            supported_accelerators[name] = info
+    
+    # 按指定精度的算力排序
+    sorted_items = sorted(
+        supported_accelerators.items(),
+        key=lambda x: x[1]["compute_capability_tflops"][precision],
+        reverse=True
+    )
+    
+    return dict(sorted_items)
+
+
+def get_best_accelerator_for_precision(precision: str, device_type: str = None) -> Dict[str, Any]:
+    """
+    获取指定精度下最佳的加速器
+    
+    Args:
+        precision: 精度类型
+        device_type: 可选的设备类型限制
+        
+    Returns:
+        最佳加速器信息
+    """
+    candidates = get_accelerator_by_precision(precision)
+    
+    if device_type:
+        candidates = {
+            name: info for name, info in candidates.items()
+            if info["device_type"] == device_type
+        }
+    
+    if not candidates:
+        return {}
+    
+    # 返回算力最高的加速器
+    best_name = next(iter(candidates))
+    return {
+        "name": best_name,
+        "info": candidates[best_name],
+        "compute_capability_tflops": candidates[best_name]["compute_capability_tflops"][precision]
+    }
+
+
+def compare_precision_performance(accelerator_name: str) -> Dict[str, Any]:
+    """
+    比较单个加速器在不同精度下的性能
+    
+    Args:
+        accelerator_name: 加速器名称
+        
+    Returns:
+        精度性能比较结果
+    """
+    try:
+        acc = create_accelerator(accelerator_name)
+        info = acc.get_accelerator_info()
+        
+        compute_capabilities = info["compute_capability_tflops"]
+        
+        # 计算各精度相对于FP32的性能倍数
+        fp32_performance = compute_capabilities.get("fp32", 1.0)
+        precision_ratios = {}
+        
+        for precision, tflops in compute_capabilities.items():
+            if precision != "fp32":
+                precision_ratios[precision] = tflops / fp32_performance
+        
+        # 计算能效比（TFLOPS/W）
+        power_w = info["power_consumption_w"] or 1
+        efficiency_ratios = {}
+        
+        for precision, tflops in compute_capabilities.items():
+            efficiency_ratios[precision] = tflops / power_w
+        
+        return {
+            "accelerator": accelerator_name,
+            "compute_capabilities": compute_capabilities,
+            "precision_ratios": precision_ratios,
+            "efficiency_ratios": efficiency_ratios,
+            "supported_precisions": list(compute_capabilities.keys()),
+            "best_precision": max(compute_capabilities.items(), key=lambda x: x[1])
+        }
+    
+    except ValueError:
+        return {"error": f"Unsupported accelerator: {accelerator_name}"}
+
+
+def estimate_model_performance(accelerator_name: str, model_precision: str, 
+                             model_size_gb: float, batch_size: int = 1) -> Dict[str, Any]:
+    """
+    估算模型在指定加速器和精度下的性能
+    
+    Args:
+        accelerator_name: 加速器名称
+        model_precision: 模型精度
+        model_size_gb: 模型大小（GB）
+        batch_size: 批次大小
+        
+    Returns:
+        性能估算结果
+    """
+    try:
+        acc = create_accelerator(accelerator_name)
+        
+        # 检查内存容量
+        if not acc.check_memory_fit(model_size_gb):
+            return {
+                "error": f"Model size ({model_size_gb:.1f}GB) exceeds accelerator memory capacity ({acc.memory_capacity_gb:.1f}GB)"
+            }
+        
+        # 获取指定精度的算力
+        compute_tflops = acc.get_compute_capability_by_precision(model_precision)
+        
+        if compute_tflops == 0:
+            return {
+                "error": f"Precision {model_precision} not supported by {accelerator_name}"
+            }
+        
+        # 估算性能指标
+        memory_utilization = model_size_gb / acc.memory_capacity_gb
+        
+        # 简单估算（实际性能会更复杂）
+        estimated_throughput_tokens_per_s = compute_tflops * 1000 / model_size_gb  # 简化计算
+        estimated_latency_ms = (model_size_gb / acc.memory_bandwidth_gb_s) * 1000  # 简化计算
+        
+        return {
+            "accelerator": accelerator_name,
+            "model_precision": model_precision,
+            "model_size_gb": model_size_gb,
+            "batch_size": batch_size,
+            "compute_capability_tflops": compute_tflops,
+            "memory_utilization": memory_utilization,
+            "estimated_throughput_tokens_per_s": estimated_throughput_tokens_per_s,
+            "estimated_latency_ms": estimated_latency_ms,
+            "memory_bandwidth_gb_s": acc.memory_bandwidth_gb_s,
+            "memory_capacity_gb": acc.memory_capacity_gb
+        }
+    
+    except ValueError:
+        return {"error": f"Unsupported accelerator: {accelerator_name}"} 
