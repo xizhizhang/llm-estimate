@@ -6,7 +6,6 @@
 """
 
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 
 from ..models.registry import model_registry
 from ..models.base import BaseModel
@@ -15,77 +14,12 @@ from ..hardware.accelerator import create_accelerator
 from .op_level_estimator import OpLevelEstimator
 
 
-@dataclass
-class EstimationResult:
-    """估算结果数据类"""
-    model_name: str
-    hardware_config: Dict[str, Any]
-    throughput_tokens_per_sec: float
-    latency_ms: float
-    memory_usage_gb: float
-    utilization_percent: float
-    compute_utilization_percent: float
-    memory_bandwidth_utilization_percent: float
-    memory_capacity_utilization_percent: float
-    bottleneck: str
-    bottleneck_details: str
-    additional_metrics: Dict[str, Any]
-
-
 class PerformanceEstimator:
     """性能估算器主类"""
     
     def __init__(self):
         self.model_registry = model_registry
         self.op_level_estimator = OpLevelEstimator()
-    
-    def estimate(self, model_name: str, 
-                hardware_config: Dict[str, Any],
-                model_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        执行性能估算
-        
-        Args:
-            model_name: 模型名称
-            hardware_config: 硬件配置，支持单加速器
-                格式: {"accelerator": "rtx-4090"}
-            model_config: 模型配置
-            
-        Returns:
-            估算结果字典
-        """
-        # 创建模型实例
-        model = self._create_model(model_name, model_config)
-        
-        # 创建系统规格
-        system_spec = self._create_system_spec(hardware_config)
-        
-        # 执行各项估算
-        memory_usage = self._estimate_memory_usage(model, system_spec)
-        throughput = self._estimate_throughput(model, system_spec)
-        latency = self._estimate_latency(model, system_spec)
-        detailed_utilization = self._estimate_detailed_utilization(model, system_spec)
-        utilization_analysis = self._analyze_utilization_and_bottleneck(model, system_spec)
-        
-        # 组装结果
-        result = {
-            "model_name": model_name,
-            "model_info": model.get_model_info(),
-            "system_info": system_spec.get_system_info(),
-            "memory_usage_gb": memory_usage,
-            "throughput_tokens_per_sec": throughput,
-            "latency_ms": latency,
-            "utilization_percent": detailed_utilization["overall"],
-            "compute_utilization_percent": detailed_utilization["compute"],
-            "memory_bandwidth_utilization_percent": detailed_utilization["memory_bandwidth"], 
-            "memory_capacity_utilization_percent": detailed_utilization["memory_capacity"],
-            "bottleneck": utilization_analysis["bottleneck"],
-            "bottleneck_details": utilization_analysis["bottleneck_details"],
-            "recommendations": self._generate_recommendations(model, system_spec, detailed_utilization, utilization_analysis),
-            "compatibility": system_spec.check_compatibility(memory_usage)
-        }
-        
-        return result
     
     def estimate_op_level(self, model_name: str, 
                          hardware_config: Dict[str, Any],
