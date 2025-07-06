@@ -30,6 +30,18 @@ ACCELERATOR_SPECS = {
         power_consumption_w=450
     ),
 
+    "rtx-6001": AcceleratorSpecs(
+        name="RTX-6001",
+        manufacturer="NVIDIA",
+        device_type="gpu",
+        compute_capability_tflops=500.0,  # Tensor Core FP16/BF16算力（稠密）
+        memory_bandwidth_gb_s=1800.0,
+        memory_capacity_gb=96.0,
+        release_year=2025,
+        price_usd=10000,
+        power_consumption_w=600
+    ),
+
     "h100": AcceleratorSpecs(
         name="H100-80GB",
         manufacturer="NVIDIA",
