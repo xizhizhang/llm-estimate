@@ -83,16 +83,6 @@ class BaseModel(ABC):
         pass
     
     @abstractmethod
-    def estimate_flops_per_token(self) -> float:
-        """
-        估算每个token的计算量（FLOPS）
-        
-        Returns:
-            每个token的FLOPS数
-        """
-        pass
-    
-    @abstractmethod
     def decompose_to_ops(self) -> List['LayerProfile']:
         """
         将模型分解为具体的操作
