@@ -6,7 +6,7 @@ LLM Performance Estimation Tool - Estimate the performance of Large Language Mod
 
 ## Features
 
-- 🚀 Support for mainstream LLM models (Llama, Qwen, MoE, etc.)
+- 🚀 Support for mainstream LLM models (Qwen, MoE, etc.)
 - 💻 Unified accelerator abstraction (GPU, CPU, TPU, SOC, etc.)
 - 📊 Estimate key performance metrics (TTFT, TPOT, throughput, memory usage)
 - 🔧 Operation-level detailed analysis and bottleneck identification
@@ -79,17 +79,17 @@ llm-estimate --help
 #### Command Line Tool
 
 ```bash
-# Estimate Llama-2-7B performance on RTX-4090
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
+# Estimate Qwen-8B performance on RTX-4090
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090
 
 # Specify precision, batch size, and sequence lengths
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4 --input-length 1024 --output-length 256
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --precision fp16 --batch-size 4 --input-length 1024 --output-length 256
 
 # Detailed analysis with operation-level breakdown
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --verbose
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --verbose
 
 # Show detailed operations breakdown
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --show-ops --top-ops 20 --detailed
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --show-ops --top-ops 20 --detailed
 
 # List supported models
 python3 llm_estimate.py list-models
@@ -102,7 +102,7 @@ python3 llm_estimate.py list-accelerators --type gpu
 python3 llm_estimate.py list-accelerators --type cpu
 
 # Benchmark performance across different sequence lengths
-python3 llm_estimate.py benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024,2048,4096 --output-lengths 128,256,512
+python3 llm_estimate.py benchmark --model qwen3-8b --accelerator rtx-4090 --input-lengths 512,1024,2048,4096 --output-lengths 128,256,512
 
 # Interactive mode
 python3 llm_estimate.py interactive
@@ -118,7 +118,7 @@ estimator = PerformanceEstimator()
 
 # Single accelerator estimation
 result = estimator.estimate(
-    model_name="llama-2-7b",
+    model_name="qwen3-8b",
     hardware_config={"accelerator": "rtx-4090"},
     model_config={"batch_size": 1, "precision": "fp16"}
 )
@@ -153,10 +153,6 @@ llm-estimate/
 ```
 
 ## Supported Models
-
-### Llama Series
-- **llama-2-7b**: 7B parameters, 32 layers, 4K context
-- **llama-3.1-8b**: 8B parameters, 32 layers, 128K context, GQA
 
 ### Qwen Series
 - **qwen3-8b**: 8B parameters, 36 layers, 40K context, GQA
@@ -249,7 +245,7 @@ Example:
 
 ```
 === Performance Estimate ===
-Model: llama-2-7b
+Model: qwen3-8b
 Accelerator: RTX-4090
 Precision: fp16
 Batch Size: 1

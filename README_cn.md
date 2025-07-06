@@ -6,7 +6,7 @@
 
 ## 功能特性
 
-- 🚀 支持多种主流LLM模型（Llama、Qwen、MoE等）
+- 🚀 支持多种主流LLM模型（Qwen、MoE等）
 - 💻 统一加速器抽象（GPU、CPU、TPU、SOC等）
 - 📊 估算关键性能指标（TTFT、TPOT、吞吐量、内存使用）
 - 🔧 操作级别详细分析和瓶颈识别
@@ -79,17 +79,17 @@ llm-estimate --help
 #### 命令行工具
 
 ```bash
-# 估算Llama-2-7B在RTX-4090上的性能
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090
+# 估算Qwen-8B在RTX-4090上的性能
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090
 
 # 指定精度、批次大小和序列长度
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --precision fp16 --batch-size 4 --input-length 1024 --output-length 256
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --precision fp16 --batch-size 4 --input-length 1024 --output-length 256
 
 # 详细分析，包含操作级别分解
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --verbose
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --verbose
 
 # 显示详细的操作分解
-python3 llm_estimate.py estimate --model llama-2-7b --accelerator rtx-4090 --show-ops --top-ops 20 --detailed
+python3 llm_estimate.py estimate --model qwen3-8b --accelerator rtx-4090 --show-ops --top-ops 20 --detailed
 
 # 列出支持的模型
 python3 llm_estimate.py list-models
@@ -102,7 +102,7 @@ python3 llm_estimate.py list-accelerators --type gpu
 python3 llm_estimate.py list-accelerators --type cpu
 
 # 跨不同序列长度的性能基准测试
-python3 llm_estimate.py benchmark --model llama-2-7b --accelerator rtx-4090 --input-lengths 512,1024,2048,4096 --output-lengths 128,256,512
+python3 llm_estimate.py benchmark --model qwen3-8b --accelerator rtx-4090 --input-lengths 512,1024,2048,4096 --output-lengths 128,256,512
 
 # 交互式模式
 python3 llm_estimate.py interactive
@@ -118,7 +118,7 @@ estimator = PerformanceEstimator()
 
 # 单加速器估算
 result = estimator.estimate(
-    model_name="llama-2-7b",
+    model_name="qwen3-8b",
     hardware_config={"accelerator": "rtx-4090"},
     model_config={"batch_size": 1, "precision": "fp16"}
 )
@@ -153,10 +153,6 @@ llm-estimate/
 ```
 
 ## 支持的模型
-
-### Llama系列
-- **llama-2-7b**: 7B参数，32层，4K上下文
-- **llama-3.1-8b**: 8B参数，32层，128K上下文，GQA架构
 
 ### Qwen系列
 - **qwen3-8b**: 8B参数，36层，40K上下文，GQA架构
@@ -249,7 +245,7 @@ mypy llm_estimate/
 
 ```
 === 性能估算 ===
-模型: llama-2-7b
+模型: qwen3-8b
 加速器: RTX-4090
 精度: fp16
 批次大小: 1

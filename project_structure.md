@@ -18,7 +18,6 @@ llm-estimate/
 │   ├── models/                 # 模型管理模块
 │   │   ├── __init__.py
 │   │   ├── base.py             # 基础模型类
-│   │   ├── llama.py            # Llama系列模型
 │   │   ├── qwen.py             # Qwen系列模型
 │   │   ├── registry.py         # 模型注册表
 │   │   └── configs.py          # 模型配置管理
@@ -67,7 +66,6 @@ llm-estimate/
 │
 ├── data/                       # 数据目录
 │   ├── models/                 # 模型数据
-│   │   ├── llama_specs.json
 │   │   ├── qwen_specs.json
 │   │   └── ...
 │   ├── hardware/               # 硬件数据
@@ -98,7 +96,6 @@ llm-estimate/
 ### 1. 模型管理模块 (models/)
 **职责**: 管理各种LLM模型的规格、参数和配置
 - `base.py`: 定义基础模型类，包含通用属性和方法
-- `llama.py`: Llama系列模型实现（Llama2、Code Llama等）
 - `qwen.py`: Qwen系列模型实现（Qwen-7B、Qwen-14B等）
 - `registry.py`: 模型注册表，统一管理所有支持的模型
 - `configs.py`: 模型配置管理，包括默认参数、变体配置等
@@ -173,12 +170,6 @@ LOG_LEVEL = "INFO"
 CACHE_ENABLED = True
 
 # models/configs.py - 模型特定配置
-LLAMA_DEFAULT_PARAMS = {
-    "context_length": 4096,
-    "batch_size": 1,
-    "precision": "fp16"
-}
-
 QWEN3_DEFAULT_PARAMS = {
     "context_length": 8192,
     "batch_size": 1,
@@ -197,16 +188,13 @@ GPU_PERFORMANCE_FACTORS = {
 ### 命令行使用
 ```bash
 # 基本使用
-llm-estimate --model llama-2-7b --accelerator rtx-4090 --memory 32GB
+llm-estimate --model qwen-7b --accelerator rtx-4090 --memory 32GB
 
 # 交互式模式
 llm-estimate interactive
 
 # 批量估算
 llm-estimate batch --config configs/hardware_list.yaml
-
-# 对比模式
-llm-estimate compare --models llama-2-7b,qwen-7b --accelerator rtx-4090
 
 # 输出详细信息
 llm-estimate --model qwen-14b --accelerator v100 --verbose --output report.json
@@ -218,7 +206,7 @@ from llm_estimate import PerformanceEstimator
 
 estimator = PerformanceEstimator()
 result = estimator.estimate(
-    model='llama-2-7b',
+    model='qwen-7b',
     hardware={'accelerator': 'rtx-4090', 'memory': '32GB'}
 )
 print(f"预估QPS: {result.qps}")
